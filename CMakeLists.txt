@@ -45,6 +45,15 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    Core/Src/mpu6050.c
+    Core/Src/ms5611.c
+    Core/Src/gps_nmea.c
+    Core/Src/sx1278.c
+    Core/Src/kalman.c
+    Core/Src/pid.c
+    Core/Src/servo_esc.c
+    Core/Src/adc_sensors.c
+    Core/Src/telemetry.c
 )
 
 # Add include paths

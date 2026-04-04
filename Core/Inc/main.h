@@ -31,7 +31,16 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "flight_types.h"
+#include "mpu6050.h"
+#include "ms5611.h"
+#include "gps_nmea.h"
+#include "sx1278.h"
+#include "kalman.h"
+#include "pid.h"
+#include "servo_esc.h"
+#include "adc_sensors.h"
+#include "telemetry.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -61,6 +70,28 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 
 /* USER CODE BEGIN Private defines */
+
+/* LoRa SX1278 GPIO Pins */
+#define LORA_NSS_PIN        GPIO_PIN_7
+#define LORA_NSS_PORT       GPIOC
+#define LORA_RST_PIN        GPIO_PIN_10
+#define LORA_RST_PORT       GPIOB
+#define LORA_DIO0_PIN       GPIO_PIN_9
+#define LORA_DIO0_PORT      GPIOC
+
+/* GPS PPS (Pulse Per Second) Pin */
+#define GPS_PPS_PIN         GPIO_PIN_4
+#define GPS_PPS_PORT        GPIOA
+
+/* ESC Programming Pin (Skywalker 100A V2-UBEC) */
+#define ESC_PROG_PIN        GPIO_PIN_10
+#define ESC_PROG_PORT       GPIOC
+
+/* Control loop frequency */
+#define CONTROL_LOOP_HZ     100  // 100 Hz main control loop
+
+/* GPS UART baud rate (NEO-6M default) */
+#define GPS_UART_BAUD       9600
 
 /* USER CODE END Private defines */
 

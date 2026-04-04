@@ -22,7 +22,17 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "flight_types.h"
+#include "mpu6050.h"
+#include "ms5611.h"
+#include "gps_nmea.h"
+#include "sx1278.h"
+#include "kalman.h"
+#include "pid.h"
+#include "servo_esc.h"
+#include "adc_sensors.h"
+#include "telemetry.h"
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -61,6 +71,33 @@ const osThreadAttr_t defaultTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 
+/* Sensor handles */
+MPU6050_Handle_t hmpu;
+MS5611_Handle_t hbaro;
+GPS_Handle_t hgps;
+SX1278_Handle_t hlora;
+PowerSensor_Handle_t hpower;
+
+/* Control system */
+KalmanFilter_t kalman;
+FlightPID_t flight_pid;
+
+/* Actuator handles */
+Servo_Handle_t servo_roll;   // TIM1_CH1 - PA8
+Servo_Handle_t servo_pitch;  // TIM1_CH2 - PA9
+Servo_Handle_t servo_yaw;    // TIM1_CH3 - PA10
+ESC_Handle_t esc;            // TIM2_CH1 - PA15
+
+/* Telemetry */
+Telemetry_Handle_t htelemetry;
+
+/* Flight state */
+FlightState_t flight_state;
+
+/* Control parameters */
+float throttle_command = 0.0f;  // 0.0 to 1.0
+volatile uint8_t system_armed = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,7 +112,10 @@ static void MX_TIM2_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+static void Flight_InitSensors(void);
+static void Flight_InitActuators(void);
+static void Flight_InitRadio(void);
+static void Flight_ControlLoop(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -119,7 +159,25 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-
+  
+  /* Initialize flight state */
+  memset(&flight_state, 0, sizeof(FlightState_t));
+  
+  /* Initialize Kalman filter and PID controllers */
+  Kalman_Init(&kalman);
+  Kalman_SetTuning(&kalman, 0.001f, 0.003f, 0.03f);  // Q_angle, Q_bias, R_measure
+  
+  FlightPID_Init(&flight_pid);
+  
+  /* Initialize sensors */
+  Flight_InitSensors();
+  
+  /* Initialize actuators */
+  Flight_InitActuators();
+  
+  /* Initialize LoRa radio */
+  Flight_InitRadio();
+  
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -570,10 +628,36 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pins : PC7 PC8 PC9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9|GPIO_PIN_10, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PA4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PC7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PC9 PC10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_9|GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -583,11 +667,225 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+ * @brief Initialize all sensors
+ */
+static void Flight_InitSensors(void)
+{
+    /* Configure PA4 as input for GPS PPS */
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    
+    GPIO_InitStruct.Pin = GPS_PPS_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;  // Interrupt on rising edge
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    HAL_GPIO_Init(GPS_PPS_PORT, &GPIO_InitStruct);
+    
+    /* Enable EXTI interrupt for PPS */
+    HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+    
+    /* Initialize MPU-6050 IMU on I2C1 */
+    if (MPU6050_Init(&hmpu, &hi2c1) == HAL_OK) {
+        /* Calibrate gyroscope (keep device still!) */
+        MPU6050_Calibrate(&hmpu, 200);
+    }
+    
+    /* Initialize MS5611 Barometer on I2C1 */
+    MS5611_Init(&hbaro, &hi2c1);
+    
+    /* Initialize GPS on UART4 with PPS on PA4 */
+    GPS_InitWithPPS(&hgps, &huart4, GPS_PPS_PORT, GPS_PPS_PIN);
+    
+    /* Initialize power sensor on ADC1 */
+    PowerSensor_Init(&hpower, &hadc1);
+}
+
+/**
+ * @brief Initialize servos and ESC
+ */
+static void Flight_InitActuators(void)
+{
+    /* Initialize servos on TIM1 */
+    Servo_Init(&servo_roll, &htim1, TIM_CHANNEL_1);   // PA8
+    Servo_Init(&servo_pitch, &htim1, TIM_CHANNEL_2);  // PA9
+    Servo_Init(&servo_yaw, &htim1, TIM_CHANNEL_3);    // PA10
+    
+    /* Configure PC10 as output for ESC programming */
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    
+    GPIO_InitStruct.Pin = ESC_PROG_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(ESC_PROG_PORT, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(ESC_PROG_PORT, ESC_PROG_PIN, GPIO_PIN_RESET);
+    
+    /* Initialize ESC on TIM2 with programming pin on PC10 */
+    ESC_InitWithProg(&esc, &htim2, TIM_CHANNEL_1, ESC_PROG_PORT, ESC_PROG_PIN);
+    
+    /* Center all servos */
+    Servo_SetAngle(&servo_roll, 0.0f);
+    Servo_SetAngle(&servo_pitch, 0.0f);
+    Servo_SetAngle(&servo_yaw, 0.0f);
+}
+
+/**
+ * @brief Initialize LoRa radio
+ */
+static void Flight_InitRadio(void)
+{
+    /* Configure GPIO for LoRa control pins */
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    
+    /* NSS pin (PC7) - Output */
+    GPIO_InitStruct.Pin = LORA_NSS_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(LORA_NSS_PORT, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(LORA_NSS_PORT, LORA_NSS_PIN, GPIO_PIN_SET);
+    
+    /* RST pin (PB10) - Output */
+    GPIO_InitStruct.Pin = LORA_RST_PIN;
+    HAL_GPIO_Init(LORA_RST_PORT, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(LORA_RST_PORT, LORA_RST_PIN, GPIO_PIN_SET);
+    
+    /* Initialize SX1278 */
+    if (SX1278_Init(&hlora, &hspi1, 
+                    LORA_NSS_PORT, LORA_NSS_PIN,
+                    LORA_RST_PORT, LORA_RST_PIN,
+                    LORA_DIO0_PORT, LORA_DIO0_PIN) == HAL_OK) {
+        
+        /* Configure LoRa parameters */
+        SX1278_Config_t lora_config = {
+            .frequency = 433000000,           // 433 MHz
+            .bandwidth = SX1278_BW_125_KHZ,   // 125 kHz bandwidth
+            .spreading_factor = SX1278_SF_7,  // SF7 for faster data rate
+            .coding_rate = SX1278_CR_4_5,     // 4/5 coding rate
+            .tx_power = 17,                   // 17 dBm
+            .preamble_length = 8,
+            .sync_word = 0x12                 // Private network
+        };
+        
+        SX1278_Configure(&hlora, &lora_config);
+    }
+    
+    /* Initialize telemetry */
+    Telemetry_Init(&htelemetry, &hlora);
+    Telemetry_SetRate(&htelemetry, 10);  // 10 Hz telemetry
+}
+
+/**
+ * @brief Main flight control loop - called from RTOS task
+ */
+static void Flight_ControlLoop(void)
+{
+    static uint32_t last_loop_time = 0;
+    static uint32_t last_baro_time = 0;
+    static uint32_t last_power_time = 0;
+    
+    uint32_t now = HAL_GetTick();
+    float dt = (now - last_loop_time) / 1000.0f;
+    
+    if (dt < 0.001f) dt = 0.01f;  // Prevent division issues
+    last_loop_time = now;
+    
+    /* ========== READ IMU (High Priority - 100Hz+) ========== */
+    if (MPU6050_ReadAll(&hmpu, &flight_state.imu) == HAL_OK) {
+        flight_state.last_imu_update = now;
+        
+        /* Update Kalman filter */
+        Kalman_Update(&kalman, 
+                      &flight_state.imu.accel, 
+                      &flight_state.imu.gyro, 
+                      dt);
+        
+        /* Get filtered orientation */
+        Kalman_GetOrientation(&kalman, &flight_state.orientation);
+    }
+    
+    /* ========== READ BAROMETER (10Hz) ========== */
+    if (now - last_baro_time >= 100) {
+        last_baro_time = now;
+        MS5611_ReadBlocking(&hbaro, &flight_state.baro);
+    }
+    
+    /* ========== READ POWER SENSOR (5Hz) ========== */
+    if (now - last_power_time >= 200) {
+        last_power_time = now;
+        PowerSensor_Read(&hpower, &flight_state.power);
+    }
+    
+    /* ========== PID CONTROL (100Hz) ========== */
+    FlightPID_Update(&flight_pid, &flight_state.orientation, dt);
+    
+    /* Get PID outputs */
+    float roll_out, pitch_out, yaw_out;
+    FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_out);
+    
+    /* ========== ACTUATOR OUTPUT ========== */
+    if (system_armed) {
+        /* Apply PID outputs to servos (normalized -1 to +1) */
+        Servo_SetNormalized(&servo_roll, roll_out);
+        Servo_SetNormalized(&servo_pitch, pitch_out);
+        Servo_SetNormalized(&servo_yaw, yaw_out);
+        
+        /* Set ESC throttle */
+        ESC_SetThrottle(&esc, throttle_command);
+    } else {
+        /* Disarmed - center servos, zero throttle */
+        Servo_SetNormalized(&servo_roll, 0.0f);
+        Servo_SetNormalized(&servo_pitch, 0.0f);
+        Servo_SetNormalized(&servo_yaw, 0.0f);
+    }
+    
+    /* ========== TELEMETRY (10Hz) ========== */
+    if (Telemetry_ReadyToSend(&htelemetry)) {
+        /* Convert servo outputs to 0-255 range for telemetry */
+        uint8_t telem_roll = (uint8_t)((roll_out + 1.0f) * 127.5f);
+        uint8_t telem_pitch = (uint8_t)((pitch_out + 1.0f) * 127.5f);
+        uint8_t telem_yaw = (uint8_t)((yaw_out + 1.0f) * 127.5f);
+        uint8_t telem_throttle = (uint8_t)(throttle_command * 255.0f);
+        
+        Telemetry_BuildPacket(&htelemetry, &flight_state,
+                              telem_roll, telem_pitch, telem_yaw, telem_throttle);
+        Telemetry_Send(&htelemetry);
+    }
+    
+    /* Update telemetry state */
+    Telemetry_Update(&htelemetry);
+    
+    flight_state.loop_count++;
+}
+
+/* GPS UART Receive Callback */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == UART4) {
+        GPS_IRQHandler(&hgps);
+        flight_state.last_gps_update = HAL_GetTick();
+    }
+}
+
+/* GPS PPS EXTI Callback */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == GPS_PPS_PIN) {
+        GPS_PPS_IRQHandler(&hgps);
+    }
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
 /**
   * @brief  Function implementing the defaultTask thread.
+  *         This is the main flight control task running at 100Hz
   * @param  argument: Not used
   * @retval None
   */
@@ -595,10 +893,32 @@ static void MX_GPIO_Init(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  /* Infinite loop */
+  
+  /* Give sensors time to stabilize */
+  osDelay(1000);
+  
+  /* Arm ESC (keep at minimum throttle for 2 seconds) */
+  ESC_Arm(&esc);
+  osDelay(2000);
+  
+  /* Set initial setpoint (level flight) */
+  FlightPID_SetSetpoint(&flight_pid, 0.0f, 0.0f, 0.0f);
+  
+  /* Main flight control loop */
+  uint32_t last_tick = osKernelGetTickCount();
+  const uint32_t loop_period_ms = 1000 / CONTROL_LOOP_HZ;  // 10ms for 100Hz
+  
   for(;;)
   {
-    osDelay(1);
+    /* Run control loop */
+    Flight_ControlLoop();
+    
+    /* GPS data is updated via interrupt - copy to flight state */
+    GPS_GetData(&hgps, &flight_state.gps);
+    
+    /* Wait for next period */
+    last_tick += loop_period_ms;
+    osDelayUntil(last_tick);
   }
   /* USER CODE END 5 */
 }
