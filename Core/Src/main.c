@@ -62,12 +62,26 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart4;
 
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
+/* Definitions for flightTask */
+osThreadId_t flightTaskHandle;
+const osThreadAttr_t flightTask_attributes = {
+  .name = "flightTask",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for telemetryTask */
+osThreadId_t telemetryTaskHandle;
+const osThreadAttr_t telemetryTask_attributes = {
+  .name = "telemetryTask",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for sensorsTask */
+osThreadId_t sensorsTaskHandle;
+const osThreadAttr_t sensorsTask_attributes = {
+  .name = "sensorsTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* USER CODE BEGIN PV */
 
@@ -109,7 +123,9 @@ static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
-void StartDefaultTask(void *argument);
+void StartflightTask(void *argument);
+void StarttelemetryTask(void *argument);
+void StartsensorsTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 static void Flight_InitSensors(void);
@@ -200,8 +216,14 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+  /* creation of flightTask */
+  flightTaskHandle = osThreadNew(StartflightTask, NULL, &flightTask_attributes);
+
+  /* creation of telemetryTask */
+  telemetryTaskHandle = osThreadNew(StarttelemetryTask, NULL, &telemetryTask_attributes);
+
+  /* creation of sensorsTask */
+  sensorsTaskHandle = osThreadNew(StartsensorsTask, NULL, &sensorsTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -882,15 +904,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartDefaultTask */
+/* USER CODE BEGIN Header_StartflightTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
-  *         This is the main flight control task running at 100Hz
+  * @brief  Function implementing the flightTask thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
+/* USER CODE END Header_StartflightTask */
+void StartflightTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
   
@@ -921,6 +942,77 @@ void StartDefaultTask(void *argument)
     osDelayUntil(last_tick);
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StarttelemetryTask */
+/**
+* @brief Function implementing the telemetryTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StarttelemetryTask */
+void StarttelemetryTask(void *argument)
+{
+  /* USER CODE BEGIN StarttelemetryTask */
+  /* Telemetry pipeline: send latest flight state over LoRa */
+  for(;;)
+  {
+    /* Send telemetry if ready */
+    if (Telemetry_ReadyToSend(&htelemetry)) {
+      float roll_out, pitch_out, yaw_out;
+      FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_out);
+      uint8_t telem_roll = (uint8_t)((roll_out + 1.0f) * 127.5f);
+      uint8_t telem_pitch = (uint8_t)((pitch_out + 1.0f) * 127.5f);
+      uint8_t telem_yaw = (uint8_t)((yaw_out + 1.0f) * 127.5f);
+      uint8_t telem_throttle = (uint8_t)(throttle_command * 255.0f);
+      Telemetry_BuildPacket(&htelemetry, &flight_state,
+                            telem_roll, telem_pitch, telem_yaw, telem_throttle);
+      Telemetry_Send(&htelemetry);
+    }
+    Telemetry_Update(&htelemetry);
+    osDelay(10); // 100Hz loop
+  }
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StarttelemetryTask */
+}
+
+/* USER CODE BEGIN Header_StartsensorsTask */
+/**
+* @brief Function implementing the sensorsTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartsensorsTask */
+void StartsensorsTask(void *argument)
+{
+  /* USER CODE BEGIN StartsensorsTask */
+  /* Sensor polling: update IMU, baro, power, GPS */
+  for(;;)
+  {
+    /* IMU update */
+    if (MPU6050_ReadAll(&hmpu, &flight_state.imu) == HAL_OK) {
+      flight_state.last_imu_update = HAL_GetTick();
+      Kalman_Update(&kalman, &flight_state.imu.accel, &flight_state.imu.gyro, 0.01f);
+      Kalman_GetOrientation(&kalman, &flight_state.orientation);
+    }
+    /* Barometer update */
+    MS5611_ReadBlocking(&hbaro, &flight_state.baro);
+    /* Power sensor update */
+    PowerSensor_Read(&hpower, &flight_state.power);
+    /* GPS update (if needed) */
+    GPS_GetData(&hgps, &flight_state.gps);
+    osDelay(10); // 100Hz loop
+  }
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartsensorsTask */
 }
 
 /**
