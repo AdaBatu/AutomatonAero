@@ -41,6 +41,7 @@ extern "C" {
 #include "servo_esc.h"
 #include "adc_sensors.h"
 #include "telemetry.h"
+#include "rc_input.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -94,6 +95,16 @@ void Error_Handler(void);
 #define GPS_UART_BAUD       9600
 
 /* USER CODE END Private defines */
+
+/* RC Receiver Input Pins */
+#define RC_THROTTLE_PIN     GPIO_PIN_1
+#define RC_THROTTLE_PORT    GPIOB
+#define RC_ROLL_PIN         GPIO_PIN_2
+#define RC_ROLL_PORT        GPIOB
+#define RC_PITCH_PIN        GPIO_PIN_15
+#define RC_PITCH_PORT       GPIOB
+#define RC_YAW_PIN          GPIO_PIN_11
+#define RC_YAW_PORT         GPIOB
 
 #ifdef __cplusplus
 }

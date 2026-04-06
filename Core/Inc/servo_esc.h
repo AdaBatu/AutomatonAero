@@ -6,6 +6,7 @@
 #define SERVO_ESC_H
 
 #include "stm32l4xx_hal.h"
+#include <stdbool.h>
 
 /* Servo pulse widths (microseconds) */
 #define SERVO_MIN_PULSE_US      1000   // -90 degrees

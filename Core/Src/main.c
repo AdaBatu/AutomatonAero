@@ -32,6 +32,7 @@
 #include "servo_esc.h"
 #include "adc_sensors.h"
 #include "telemetry.h"
+#include "rc_input.h"
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -53,7 +54,7 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 
-I2C_HandleTypeDef hi2c1;
+I2C_HandleTypeDef hi2c2;
 
 SPI_HandleTypeDef hspi1;
 
@@ -105,6 +106,9 @@ ESC_Handle_t esc;            // TIM2_CH1 - PA15
 /* Telemetry */
 Telemetry_Handle_t htelemetry;
 
+/* RC Input */
+RC_Handle_t hrc;
+
 /* Flight state */
 FlightState_t flight_state;
 
@@ -119,10 +123,10 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_UART4_Init(void);
 static void MX_ADC1_Init(void);
-static void MX_I2C1_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_I2C2_Init(void);
 void StartflightTask(void *argument);
 void StarttelemetryTask(void *argument);
 void StartsensorsTask(void *argument);
@@ -131,6 +135,7 @@ void StartsensorsTask(void *argument);
 static void Flight_InitSensors(void);
 static void Flight_InitActuators(void);
 static void Flight_InitRadio(void);
+static void Flight_InitRCInput(void);
 static void Flight_ControlLoop(void);
 /* USER CODE END PFP */
 
@@ -170,10 +175,10 @@ int main(void)
   MX_GPIO_Init();
   MX_UART4_Init();
   MX_ADC1_Init();
-  MX_I2C1_Init();
   MX_SPI1_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
   
   /* Initialize flight state */
@@ -187,6 +192,9 @@ int main(void)
   
   /* Initialize sensors */
   Flight_InitSensors();
+  
+  /* Initialize RC receiver input */
+  Flight_InitRCInput();
   
   /* Initialize actuators */
   Flight_InitActuators();
@@ -363,50 +371,50 @@ static void MX_ADC1_Init(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
+  * @brief I2C2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_I2C1_Init(void)
+static void MX_I2C2_Init(void)
 {
 
-  /* USER CODE BEGIN I2C1_Init 0 */
+  /* USER CODE BEGIN I2C2_Init 0 */
 
-  /* USER CODE END I2C1_Init 0 */
+  /* USER CODE END I2C2_Init 0 */
 
-  /* USER CODE BEGIN I2C1_Init 1 */
+  /* USER CODE BEGIN I2C2_Init 1 */
 
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00503D58;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x00503D58;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Configure Analogue filter
   */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Configure Digital filter
   */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C1_Init 2 */
+  /* USER CODE BEGIN I2C2_Init 2 */
 
-  /* USER CODE END I2C1_Init 2 */
+  /* USER CODE END I2C2_Init 2 */
 
 }
 
@@ -662,6 +670,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PB1 PB2 PB11 PB15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_11|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PB10 */
   GPIO_InitStruct.Pin = GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -707,14 +721,14 @@ static void Flight_InitSensors(void)
     HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(EXTI4_IRQn);
     
-    /* Initialize MPU-6050 IMU on I2C1 */
-    if (MPU6050_Init(&hmpu, &hi2c1) == HAL_OK) {
+    /* Initialize MPU-6050 IMU on I2C2 */
+    if (MPU6050_Init(&hmpu, &hi2c2) == HAL_OK) {
         /* Calibrate gyroscope (keep device still!) */
         MPU6050_Calibrate(&hmpu, 200);
     }
     
-    /* Initialize MS5611 Barometer on I2C1 */
-    MS5611_Init(&hbaro, &hi2c1);
+    /* Initialize MS5611 Barometer on I2C2 */
+    MS5611_Init(&hbaro, &hi2c2);
     
     /* Initialize GPS on UART4 with PPS on PA4 */
     GPS_InitWithPPS(&hgps, &huart4, GPS_PPS_PORT, GPS_PPS_PIN);
@@ -803,6 +817,14 @@ static void Flight_InitRadio(void)
 }
 
 /**
+ * @brief Initialize RC receiver input
+ */
+static void Flight_InitRCInput(void)
+{
+    RC_Init(&hrc);
+}
+
+/**
  * @brief Main flight control loop - called from RTOS task
  */
 static void Flight_ControlLoop(void)
@@ -816,6 +838,11 @@ static void Flight_ControlLoop(void)
     
     if (dt < 0.001f) dt = 0.01f;  // Prevent division issues
     last_loop_time = now;
+    
+    /* ========== READ RC INPUT ========== */
+    RC_Update(&hrc);
+    RC_Input_t rc_input;
+    RC_GetInput(&hrc, &rc_input);
     
     /* ========== READ IMU (High Priority - 100Hz+) ========== */
     if (MPU6050_ReadAll(&hmpu, &flight_state.imu) == HAL_OK) {
@@ -843,21 +870,35 @@ static void Flight_ControlLoop(void)
         PowerSensor_Read(&hpower, &flight_state.power);
     }
     
+    /* ========== UPDATE PID SETPOINTS FROM RC ========== */
+    /* Roll and Pitch: RC stick -> PID target angle (±30 degrees max) */
+    float target_roll = RC_StickToAngle(rc_input.roll, 30.0f * 3.14159265f / 180.0f);
+    float target_pitch = RC_StickToAngle(rc_input.pitch, 30.0f * 3.14159265f / 180.0f);
+    
+    /* Set PID targets (yaw setpoint not used - direct passthrough) */
+    FlightPID_SetSetpoint(&flight_pid, target_roll, target_pitch, 0.0f);
+    
     /* ========== PID CONTROL (100Hz) ========== */
     FlightPID_Update(&flight_pid, &flight_state.orientation, dt);
     
-    /* Get PID outputs */
-    float roll_out, pitch_out, yaw_out;
-    FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_out);
+    /* Get PID outputs for roll and pitch */
+    float roll_out, pitch_out, yaw_pid_out;
+    FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_pid_out);
+    
+    /* Yaw and Throttle: Direct passthrough from RC (1:1) */
+    float yaw_out = rc_input.yaw;
+    throttle_command = rc_input.throttle;
     
     /* ========== ACTUATOR OUTPUT ========== */
     if (system_armed) {
-        /* Apply PID outputs to servos (normalized -1 to +1) */
+        /* Apply PID outputs to roll/pitch servos (normalized -1 to +1) */
         Servo_SetNormalized(&servo_roll, roll_out);
         Servo_SetNormalized(&servo_pitch, pitch_out);
+        
+        /* Apply direct RC yaw (1:1 passthrough) */
         Servo_SetNormalized(&servo_yaw, yaw_out);
         
-        /* Set ESC throttle */
+        /* Set ESC throttle (direct from RC, 1:1 passthrough) */
         ESC_SetThrottle(&esc, throttle_command);
     } else {
         /* Disarmed - center servos, zero throttle */
@@ -899,6 +940,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if (GPIO_Pin == GPS_PPS_PIN) {
         GPS_PPS_IRQHandler(&hgps);
+    }
+    
+    /* RC receiver input pins (PB1, PB2, PB11, PB15) */
+    if (GPIO_Pin == GPIO_PIN_1 || GPIO_Pin == GPIO_PIN_2 ||
+        GPIO_Pin == GPIO_PIN_11 || GPIO_Pin == GPIO_PIN_15) {
+        RC_EXTI_Handler(&hrc, GPIO_Pin);
     }
 }
 
