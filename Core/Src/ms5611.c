@@ -137,8 +137,9 @@ HAL_StatusTypeDef MS5611_Calculate(MS5611_Handle_t *hdev, Baro_Data_t *data)
     OFF -= OFF2;
     SENS -= SENS2;
     
-    // Calculate pressure (Pa * 100)
-    int32_t P = (((hdev->D1 * SENS) >> 21) - OFF) >> 15;
+    // Calculate pressure (Pa)
+    // Formula: P = D1×SENS/2^21 − OFF/2^15
+    int32_t P = (((int64_t)hdev->D1 * SENS) >> 21) - (OFF >> 15);
     
     // Store results
     data->temperature = (float)TEMP / 100.0f;  // Celsius

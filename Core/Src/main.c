@@ -802,6 +802,17 @@ static void Flight_InitSensors(void)
     HAL_StatusTypeDef baro_status = MS5611_Init(&hbaro, &hi2c2);
     printf("MS5611 Init: %s (addr=0x%02X)\r\n", 
            baro_status == HAL_OK ? "OK" : "FAILED", hbaro.address >> 1);
+    if (baro_status == HAL_OK) {
+        printf("PROM: C1=%u C2=%u C3=%u C4=%u C5=%u C6=%u\r\n",
+               hbaro.prom[1], hbaro.prom[2], hbaro.prom[3],
+               hbaro.prom[4], hbaro.prom[5], hbaro.prom[6]);
+        /* Test read */
+        Baro_Data_t test_baro;
+        if (MS5611_ReadBlocking(&hbaro, &test_baro) == HAL_OK) {
+            printf("D1=%lu D2=%lu\r\n", hbaro.D1, hbaro.D2);
+            printf("Baro: %.1f Pa, %.2f C\r\n", test_baro.pressure, test_baro.temperature);
+        }
+    }
     
     /* Initialize GPS on UART4 with PPS on PA4 */
     HAL_StatusTypeDef gps_status = GPS_InitWithPPS(&hgps, &huart4, GPS_PPS_PORT, GPS_PPS_PIN);
@@ -893,10 +904,16 @@ static void Flight_InitRadio(void)
     HAL_GPIO_WritePin(LORA_RST_PORT, LORA_RST_PIN, GPIO_PIN_SET);
     
     /* Initialize SX1278 */
-    if (SX1278_Init(&hlora, &hspi1, 
+    HAL_StatusTypeDef lora_status = SX1278_Init(&hlora, &hspi1, 
                     LORA_NSS_PORT, LORA_NSS_PIN,
                     LORA_RST_PORT, LORA_RST_PIN,
-                    LORA_DIO0_PORT, LORA_DIO0_PIN) == HAL_OK) {
+                    LORA_DIO0_PORT, LORA_DIO0_PIN);
+    printf("LoRa SX1278 Init: %s\r\n", lora_status == HAL_OK ? "OK" : "FAILED");
+    
+    if (lora_status == HAL_OK) {
+        /* Read chip version to verify communication */
+        uint8_t version = SX1278_ReadRegister(&hlora, 0x42);  // RegVersion
+        printf("LoRa chip version: 0x%02X (expected 0x12)\r\n", version);
         
         /* Configure LoRa parameters */
         SX1278_Config_t lora_config = {
@@ -910,6 +927,7 @@ static void Flight_InitRadio(void)
         };
         
         SX1278_Configure(&hlora, &lora_config);
+        printf("LoRa configured: 433MHz, SF7, BW125kHz\r\n");
     }
     
     /* Initialize telemetry */
