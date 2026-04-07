@@ -30,10 +30,18 @@
 #include <sys/time.h>
 #include <sys/times.h>
 
+/* USER CODE BEGIN Includes */
+#include "main.h"  // For UART handle
+/* USER CODE END Includes */
+
 
 /* Variables */
 extern int __io_putchar(int ch) __attribute__((weak));
 extern int __io_getchar(void) __attribute__((weak));
+
+/* USER CODE BEGIN PV */
+extern UART_HandleTypeDef huart2;  // Serial telemetry UART
+/* USER CODE END PV */
 
 
 char *__env[1] = { 0 };
@@ -242,3 +250,17 @@ __strong_reference(_kill, kill);
 __strong_reference(_getpid, getpid);
 
 #endif //__PICOLIBC__
+
+/* USER CODE BEGIN 1 */
+/**
+  * @brief Retarget printf to USART2 for serial telemetry
+  * @param ch Character to send
+  * @retval int Character sent
+  */
+int __io_putchar(int ch)
+{
+  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+  return ch;
+}
+/* USER CODE END 1 */
+

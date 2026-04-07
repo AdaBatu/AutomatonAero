@@ -33,6 +33,7 @@
 #include "adc_sensors.h"
 #include "telemetry.h"
 #include "rc_input.h"
+#include "serial_telemetry.h"
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -62,6 +63,7 @@ TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart4;
+UART_HandleTypeDef huart2;
 
 /* Definitions for flightTask */
 osThreadId_t flightTaskHandle;
@@ -101,10 +103,14 @@ FlightPID_t flight_pid;
 Servo_Handle_t servo_roll;   // TIM1_CH1 - PA8
 Servo_Handle_t servo_pitch;  // TIM1_CH2 - PA9
 Servo_Handle_t servo_yaw;    // TIM1_CH3 - PA10
-ESC_Handle_t esc;            // TIM2_CH1 - PA15
+ESC_Handle_t esc;            // TIM2_CH2 - PB3
+// NOTE: Throttle now on TIM2_CH2 (PB3), not TIM2_CH1 (PA15)
 
 /* Telemetry */
 Telemetry_Handle_t htelemetry;
+
+/* Serial Debug Telemetry */
+SerialTelemetry_Handle_t hserial_telem;
 
 /* RC Input */
 RC_Handle_t hrc;
@@ -127,6 +133,7 @@ static void MX_SPI1_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_USART2_UART_Init(void);
 void StartflightTask(void *argument);
 void StarttelemetryTask(void *argument);
 void StartsensorsTask(void *argument);
@@ -179,6 +186,7 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_I2C2_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   
   /* Initialize flight state */
@@ -201,6 +209,9 @@ int main(void)
   
   /* Initialize LoRa radio */
   Flight_InitRadio();
+  
+  /* Initialize serial debug telemetry (5Hz = print every 200ms) */
+  SerialTelemetry_Init(&hserial_telem, 5);
   
   /* USER CODE END 2 */
 
@@ -594,7 +605,7 @@ static void MX_TIM2_Init(void)
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -641,6 +652,41 @@ static void MX_UART4_Init(void)
 }
 
 /**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -666,7 +712,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PA4 */
   GPIO_InitStruct.Pin = GPIO_PIN_4;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
@@ -759,7 +805,8 @@ static void Flight_InitActuators(void)
     HAL_GPIO_WritePin(ESC_PROG_PORT, ESC_PROG_PIN, GPIO_PIN_RESET);
     
     /* Initialize ESC on TIM2 with programming pin on PC10 */
-    ESC_InitWithProg(&esc, &htim2, TIM_CHANNEL_1, ESC_PROG_PORT, ESC_PROG_PIN);
+    // Throttle output now on TIM2_CH2 (PB3)
+    ESC_InitWithProg(&esc, &htim2, TIM_CHANNEL_2, ESC_PROG_PORT, ESC_PROG_PIN);
     
     /* Center all servos */
     Servo_SetAngle(&servo_roll, 0.0f);
@@ -922,6 +969,14 @@ static void Flight_ControlLoop(void)
     
     /* Update telemetry state */
     Telemetry_Update(&htelemetry);
+    
+    /* ========== SERIAL DEBUG TELEMETRY ========== */
+    #ifdef SERIAL_TELEMETRY_ENABLED
+    if (SerialTelemetry_ReadyToPrint(&hserial_telem)) {
+        SerialTelemetry_Print(&hserial_telem, &flight_state, 
+                            roll_out, pitch_out, yaw_out, throttle_command);
+    }
+    #endif
     
     flight_state.loop_count++;
 }

@@ -55,6 +55,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/adc_sensors.c
     Core/Src/telemetry.c
     Core/Src/rc_input.c
+    Core/Src/serial_telemetry.c
 )
 
 # Add include paths

@@ -96,16 +96,6 @@ void Error_Handler(void);
 
 /* USER CODE END Private defines */
 
-/* RC Receiver Input Pins */
-#define RC_THROTTLE_PIN     GPIO_PIN_1
-#define RC_THROTTLE_PORT    GPIOB
-#define RC_ROLL_PIN         GPIO_PIN_2
-#define RC_ROLL_PORT        GPIOB
-#define RC_PITCH_PIN        GPIO_PIN_15
-#define RC_PITCH_PORT       GPIOB
-#define RC_YAW_PIN          GPIO_PIN_11
-#define RC_YAW_PORT         GPIOB
-
 #ifdef __cplusplus
 }
 #endif
