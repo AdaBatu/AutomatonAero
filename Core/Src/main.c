@@ -35,6 +35,7 @@
 #include "rc_input.h"
 #include "serial_telemetry.h"
 #include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -210,8 +211,8 @@ int main(void)
   /* Initialize LoRa radio */
   Flight_InitRadio();
   
-  /* Initialize serial debug telemetry (5Hz = print every 200ms) */
-  SerialTelemetry_Init(&hserial_telem, 5);
+  /* Initialize serial debug telemetry (0.25Hz = print every 4 seconds) */
+  SerialTelemetry_Init(&hserial_telem, 0.25f);
   
   /* USER CODE END 2 */
 
@@ -632,7 +633,7 @@ static void MX_UART4_Init(void)
 
   /* USER CODE END UART4_Init 1 */
   huart4.Instance = UART4;
-  huart4.Init.BaudRate = 115200;
+  huart4.Init.BaudRate = 9600;
   huart4.Init.WordLength = UART_WORDLENGTH_8B;
   huart4.Init.StopBits = UART_STOPBITS_1;
   huart4.Init.Parity = UART_PARITY_NONE;
@@ -767,17 +768,70 @@ static void Flight_InitSensors(void)
     HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(EXTI4_IRQn);
     
+    /* DEBUG: I2C peripheral state check */
+    printf("\r\n--- I2C2 Debug ---\r\n");
+    printf("I2C2 State: %d (1=READY)\r\n", hi2c2.State);
+    printf("I2C2 Error: 0x%08lX\r\n", hi2c2.ErrorCode);
+    
+    /* Check GPIO states - should be HIGH when idle */
+    uint8_t scl_state = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13);
+    uint8_t sda_state = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_14);
+    printf("PB13(SCL)=%d PB14(SDA)=%d (both should be 1)\r\n", scl_state, sda_state);
+    
+    /* I2C bus scan */
+    printf("--- I2C2 Bus Scan ---\r\n");
+    for (uint8_t addr = 0x08; addr < 0x78; addr++) {
+        HAL_StatusTypeDef res = HAL_I2C_IsDeviceReady(&hi2c2, addr << 1, 1, 10);
+        if (res == HAL_OK) {
+            printf("Device found at 0x%02X\r\n", addr);
+        }
+    }
+    printf("I2C2 Error after scan: 0x%08lX\r\n", hi2c2.ErrorCode);
+    printf("--- Scan Complete ---\r\n");
+    
     /* Initialize MPU-6050 IMU on I2C2 */
-    if (MPU6050_Init(&hmpu, &hi2c2) == HAL_OK) {
+    HAL_StatusTypeDef imu_status = MPU6050_Init(&hmpu, &hi2c2);
+    printf("MPU6050 Init: %s (addr=0x%02X)\r\n", 
+           imu_status == HAL_OK ? "OK" : "FAILED", hmpu.address >> 1);
+    if (imu_status == HAL_OK) {
         /* Calibrate gyroscope (keep device still!) */
         MPU6050_Calibrate(&hmpu, 200);
     }
     
     /* Initialize MS5611 Barometer on I2C2 */
-    MS5611_Init(&hbaro, &hi2c2);
+    HAL_StatusTypeDef baro_status = MS5611_Init(&hbaro, &hi2c2);
+    printf("MS5611 Init: %s (addr=0x%02X)\r\n", 
+           baro_status == HAL_OK ? "OK" : "FAILED", hbaro.address >> 1);
     
     /* Initialize GPS on UART4 with PPS on PA4 */
-    GPS_InitWithPPS(&hgps, &huart4, GPS_PPS_PORT, GPS_PPS_PIN);
+    HAL_StatusTypeDef gps_status = GPS_InitWithPPS(&hgps, &huart4, GPS_PPS_PORT, GPS_PPS_PIN);
+    printf("GPS init: %s\r\n", gps_status == HAL_OK ? "OK" : "FAILED");
+    printf("UART4 State: %d, Error: 0x%08lX\r\n", huart4.gState, huart4.ErrorCode);
+    
+    /* DEBUG: GPS test - wait for data and show sentences */
+    printf("Waiting for GPS sentences...\r\n");
+    uint32_t gps_start = HAL_GetTick();
+    while (HAL_GetTick() - gps_start < 5000) {
+        uint16_t bytes = (hgps.rx_head - hgps.rx_tail + GPS_RX_BUFFER_SIZE) % GPS_RX_BUFFER_SIZE;
+        if (bytes >= 50) {  // Wait for ~1 sentence
+            printf("GPS bytes: %d\r\n", bytes);
+            printf("Data: ");
+            for (int i = 0; i < 80 && i < bytes; i++) {
+                char c = hgps.rx_buffer[(hgps.rx_tail + i) % GPS_RX_BUFFER_SIZE];
+                if (c >= 32 && c <= 126) printf("%c", c);
+                else if (c == '\r' || c == '\n') printf("|");
+                else printf(".");
+            }
+            printf("\r\n");
+            printf("Fix: %s, Sats: %d\r\n", 
+                   hgps.data.fix_valid ? "YES" : "NO", hgps.data.satellites);
+            break;
+        }
+        HAL_Delay(50);
+    }
+    if ((hgps.rx_head - hgps.rx_tail + GPS_RX_BUFFER_SIZE) % GPS_RX_BUFFER_SIZE < 50) {
+        printf("GPS: Insufficient data received\r\n");
+    }
     
     /* Initialize power sensor on ADC1 */
     PowerSensor_Init(&hpower, &hadc1);
@@ -908,7 +962,9 @@ static void Flight_ControlLoop(void)
     /* ========== READ BAROMETER (10Hz) ========== */
     if (now - last_baro_time >= 100) {
         last_baro_time = now;
-        MS5611_ReadBlocking(&hbaro, &flight_state.baro);
+        if (MS5611_ReadBlocking(&hbaro, &flight_state.baro) == HAL_OK) {
+            flight_state.last_baro_update = now;
+        }
     }
     
     /* ========== READ POWER SENSOR (5Hz) ========== */
@@ -987,6 +1043,19 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     if (huart->Instance == UART4) {
         GPS_IRQHandler(&hgps);
         flight_state.last_gps_update = HAL_GetTick();
+    }
+}
+
+/* UART Error Callback - restart GPS reception on error */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == UART4) {
+        /* Clear error flags and restart reception */
+        __HAL_UART_CLEAR_PEFLAG(huart);
+        __HAL_UART_CLEAR_FEFLAG(huart);
+        __HAL_UART_CLEAR_NEFLAG(huart);
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        HAL_UART_Receive_IT(huart, &hgps.rx_byte, 1);
     }
 }
 

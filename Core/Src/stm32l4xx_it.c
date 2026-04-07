@@ -58,7 +58,7 @@
 extern TIM_HandleTypeDef htim3;
 
 /* USER CODE BEGIN EV */
-
+extern UART_HandleTypeDef huart4;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -206,6 +206,14 @@ void EXTI15_10_IRQHandler(void)
 {
     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_15);
+}
+
+/**
+  * @brief This function handles UART4 global interrupt.
+  */
+void UART4_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&huart4);
 }
 
 /* USER CODE END 1 */
