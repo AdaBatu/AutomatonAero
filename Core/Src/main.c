@@ -100,6 +100,11 @@ PowerSensor_Handle_t hpower;
 KalmanFilter_t kalman;
 FlightPID_t flight_pid;
 
+/* Initial orientation at power-on (for attitude hold baseline) */
+float initial_roll = 0.0f;
+float initial_pitch = 0.0f;
+bool initial_orientation_captured = false;
+
 /* Actuator handles */
 Servo_Handle_t servo_roll;   // TIM1_CH1 - PA8
 Servo_Handle_t servo_pitch;  // TIM1_CH2 - PA9
@@ -975,6 +980,13 @@ static void Flight_ControlLoop(void)
         
         /* Get filtered orientation */
         Kalman_GetOrientation(&kalman, &flight_state.orientation);
+        
+        /* Capture initial orientation after 2 seconds of stable readings */
+        if (!initial_orientation_captured && now > 2000) {
+            initial_roll = flight_state.orientation.roll;
+            initial_pitch = flight_state.orientation.pitch;
+            initial_orientation_captured = true;
+        }
     }
     
     /* ========== READ BAROMETER (10Hz) ========== */
@@ -992,9 +1004,12 @@ static void Flight_ControlLoop(void)
     }
     
     /* ========== UPDATE PID SETPOINTS FROM RC ========== */
-    /* Roll and Pitch: RC stick -> PID target angle (±30 degrees max) */
-    float target_roll = RC_StickToAngle(rc_input.roll, 30.0f * 3.14159265f / 180.0f);
-    float target_pitch = RC_StickToAngle(rc_input.pitch, 30.0f * 3.14159265f / 180.0f);
+    /* Target = initial orientation + RC stick offset (±30 degrees max) */
+    float rc_roll_offset = RC_StickToAngle(rc_input.roll, 30.0f * 3.14159265f / 180.0f);
+    float rc_pitch_offset = RC_StickToAngle(rc_input.pitch, 30.0f * 3.14159265f / 180.0f);
+    
+    float target_roll = initial_roll + rc_roll_offset;
+    float target_pitch = initial_pitch + rc_pitch_offset;
     
     /* Set PID targets (yaw setpoint not used - direct passthrough) */
     FlightPID_SetSetpoint(&flight_pid, target_roll, target_pitch, 0.0f);

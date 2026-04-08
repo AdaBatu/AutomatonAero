@@ -114,8 +114,9 @@ HAL_StatusTypeDef MS5611_Calculate(MS5611_Handle_t *hdev, Baro_Data_t *data)
     int32_t TEMP = 2000 + (((int64_t)dT * C6) >> 23);
     
     // Calculate temperature compensated pressure
-    int64_t OFF = ((int64_t)C2 << 16) + (((int64_t)C4 * dT) >> 7);
-    int64_t SENS = ((int64_t)C1 << 15) + (((int64_t)C3 * dT) >> 8);
+    // MS5611 datasheet formulas:
+    int64_t OFF = ((int64_t)C2 << 17) + (((int64_t)C4 * dT) >> 6);
+    int64_t SENS = ((int64_t)C1 << 16) + (((int64_t)C3 * dT) >> 7);
     
     // Second order temperature compensation
     int32_t T2 = 0;
@@ -138,8 +139,9 @@ HAL_StatusTypeDef MS5611_Calculate(MS5611_Handle_t *hdev, Baro_Data_t *data)
     SENS -= SENS2;
     
     // Calculate pressure (Pa)
-    // Formula: P = D1×SENS/2^21 − OFF/2^15
-    int32_t P = (((int64_t)hdev->D1 * SENS) >> 21) - (OFF >> 15);
+    // Formula: P = (D1×SENS/2^21 − OFF) / 2^15
+    int64_t P_temp = (((int64_t)hdev->D1 * SENS) >> 21) - OFF;
+    int32_t P = (int32_t)(P_temp >> 15);
     
     // Store results
     data->temperature = (float)TEMP / 100.0f;  // Celsius
