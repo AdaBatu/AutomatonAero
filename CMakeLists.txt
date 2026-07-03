@@ -44,6 +44,8 @@ string(JSON FLIGHT_ROLL_KD GET "${FLIGHT_CONFIG_JSON}" pid roll kd)
 string(JSON FLIGHT_PITCH_KP GET "${FLIGHT_CONFIG_JSON}" pid pitch kp)
 string(JSON FLIGHT_PITCH_KI GET "${FLIGHT_CONFIG_JSON}" pid pitch ki)
 string(JSON FLIGHT_PITCH_KD GET "${FLIGHT_CONFIG_JSON}" pid pitch kd)
+string(JSON FLIGHT_BARO_ZERO_SAMPLES GET
+    "${FLIGHT_CONFIG_JSON}" barometer_ms5611 startup_altitude_zero_samples)
 if(FLIGHT_SYSTEM_ARMED)
     set(FLIGHT_SYSTEM_ARMED_VALUE 1)
 else()

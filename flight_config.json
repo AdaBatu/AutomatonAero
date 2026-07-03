@@ -53,7 +53,9 @@
     "alternate_i2c_address": "0x76",
     "oversampling_ratio": 4096,
     "reference_pressure_pa": 101325.0,
-    "i2c_timeout_ms": 20
+    "i2c_timeout_ms": 20,
+    "startup_altitude_zero_samples": 32,
+    "altitude_reference": "relative to averaged startup altitude"
   },
   "current_sensor": {
     "model": "ACS758LCB-100B-PFF-T on CJMCU-758",

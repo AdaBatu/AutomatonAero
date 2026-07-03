@@ -1248,6 +1248,10 @@ void StartsensorsTask(void *argument)
   } BaroTaskState_t;
   BaroTaskState_t baro_state = BARO_START_PRESSURE;
   uint32_t baro_ready_at = 0;
+  float baro_startup_altitude_sum = 0.0f;
+  float baro_startup_altitude = 0.0f;
+  uint8_t baro_startup_samples = 0U;
+  bool baro_startup_zero_valid = false;
   uint32_t last_gps_rearm = HAL_GetTick();
   uint32_t last_power_read = 0;
   for(;;)
@@ -1289,8 +1293,24 @@ void StartsensorsTask(void *argument)
         status = MS5611_ReadADC(&hbaro, &hbaro.D2);
         osMutexRelease(i2c2MutexHandle);
       }
+      Baro_Data_t baro_sample;
       if (status == HAL_OK &&
-          MS5611_Calculate(&hbaro, &flight_state.baro) == HAL_OK) {
+          MS5611_Calculate(&hbaro, &baro_sample) == HAL_OK) {
+        if (!baro_startup_zero_valid) {
+          /* Average the startup reference so one noisy conversion cannot
+             shift every altitude reading for the rest of the flight. */
+          baro_startup_altitude_sum += baro_sample.altitude;
+          baro_startup_samples++;
+          if (baro_startup_samples >= CONFIG_BARO_ZERO_SAMPLES) {
+            baro_startup_altitude = baro_startup_altitude_sum /
+                                    (float)baro_startup_samples;
+            baro_startup_zero_valid = true;
+          }
+          baro_sample.altitude = 0.0f;
+        } else {
+          baro_sample.altitude -= baro_startup_altitude;
+        }
+        flight_state.baro = baro_sample;
         flight_state.last_baro_update = now;
       }
       if (status != HAL_BUSY) {
