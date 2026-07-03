@@ -292,8 +292,16 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
     uint8_t ack_frame[CONFIG_WIRE_SIZE];
     config_encode(ack_frame, &ack);
     htelem->rx_active = false;
-    (void)SX1278_Transmit(htelem->radio, ack_frame, sizeof(ack_frame));
-    printf("LoRa config ACK sent: status=%u\r\n", status);
+    /* Give the requester time to leave TX and enter RX, then repeat the same
+       idempotent ACK. Repeated ACKs are safe because sequence identifies the
+       transaction and greatly improve half-duplex LoRa turnaround reliability. */
+    HAL_Delay(30U);
+    for (uint8_t attempt = 0U; attempt < 3U; ++attempt) {
+        (void)SX1278_Transmit(htelem->radio, ack_frame, sizeof(ack_frame));
+        if (attempt < 2U) HAL_Delay(20U);
+    }
+    printf("LoRa config ACK burst sent: status=%u sequence=%08lX\r\n",
+           status, (unsigned long)command.sequence);
     (void)SX1278_StartReceive(htelem->radio);
     htelem->rx_active = true;
 }
