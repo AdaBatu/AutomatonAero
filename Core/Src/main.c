@@ -1050,7 +1050,8 @@ static void Flight_ControlLoop(void)
                       &flight_state.imu.gyro, dt);
         Orientation_t raw_orientation;
         Kalman_GetOrientation(&kalman, &raw_orientation);
-        if ((attitude_zero_requested != 0U || !attitude_zero_valid) && now > 2000U) {
+        if ((attitude_zero_requested != 0U || !attitude_zero_valid) &&
+            kalman.attitude_initialized && now > 2000U) {
             attitude_zero_roll = raw_orientation.roll;
             attitude_zero_pitch = raw_orientation.pitch;
             attitude_zero_yaw = raw_orientation.yaw;

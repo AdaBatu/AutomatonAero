@@ -32,6 +32,7 @@ typedef struct {
     // Yaw handled separately (magnetometer or gyro integration)
     float yaw;
     float yaw_rate;
+    bool attitude_initialized;
     
     // Timing
     float dt;

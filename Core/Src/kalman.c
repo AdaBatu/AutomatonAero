@@ -36,6 +36,7 @@ void Kalman_Init(KalmanFilter_t *kf)
     
     kf->yaw = 0.0f;
     kf->yaw_rate = 0.0f;
+    kf->attitude_initialized = false;
     kf->dt = 0.01f;  // Default 100Hz
     kf->last_update = 0;
 }
@@ -152,6 +153,15 @@ void Kalman_Update(KalmanFilter_t *kf, const Vector3f_t *accel, const Vector3f_t
         accel_pitch = kf->pitch.angle;
     }
     
+    /* Start at the measured mounting attitude instead of slowly converging
+       from an artificial 0/0 estimate. This is essential before capturing
+       the airframe-relative zero reference. */
+    if (accel_valid && !kf->attitude_initialized) {
+        kf->roll.angle = accel_roll;
+        kf->pitch.angle = accel_pitch;
+        kf->attitude_initialized = true;
+    }
+
     // Update roll and pitch with Kalman filter
     Kalman1D_Update(&kf->roll, accel_roll, gyro->x, dt);
     Kalman1D_Update(&kf->pitch, accel_pitch, gyro->y, dt);
