@@ -261,8 +261,23 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
     htelem->config_rx_count++;
     if (!config_decode(&command, frame, (size_t)len, CONFIG_TYPE_SET)) {
         htelem->config_invalid_count++;
-        htelem->last_config_status = CONFIG_STATUS_BAD_PACKET;
-        printf("LoRa config rejected: invalid frame len=%d\r\n", (int)len);
+        if (len != (int16_t)CONFIG_WIRE_SIZE) {
+            htelem->last_config_status = (uint8_t)(0x80U | ((uint8_t)len & 0x3FU));
+        } else if (frame[0] != CONFIG_MAGIC_0 || frame[1] != CONFIG_MAGIC_1) {
+            htelem->last_config_status = 0x40U;
+        } else if (frame[2] != CONFIG_VERSION) {
+            htelem->last_config_status = 0x41U;
+        } else if (frame[3] != CONFIG_TYPE_SET) {
+            htelem->last_config_status = 0x42U;
+        } else {
+            htelem->last_config_status = 0x43U; /* application CRC */
+        }
+        printf("LoRa config rejected: len=%d reason=%u bytes=",
+               (int)len, htelem->last_config_status);
+        for (int16_t i = 0; i < len && i < (int16_t)CONFIG_WIRE_SIZE; ++i) {
+            printf("%02X", frame[i]);
+        }
+        printf("\r\n");
         return;
     }
 
