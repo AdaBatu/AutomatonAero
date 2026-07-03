@@ -55,5 +55,23 @@
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 
-/* USER CODE END Application */
+/* A stack or allocation failure means scheduler metadata can no longer be
+   trusted. Reset immediately and let the independent watchdog remain the
+   final fallback if reset cannot complete. */
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+  (void)xTask;
+  (void)pcTaskName;
+  taskDISABLE_INTERRUPTS();
+  NVIC_SystemReset();
+  for (;;) {}
+}
 
+void vApplicationMallocFailedHook(void)
+{
+  taskDISABLE_INTERRUPTS();
+  NVIC_SystemReset();
+  for (;;) {}
+}
+
+/* USER CODE END Application */

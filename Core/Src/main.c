@@ -72,21 +72,21 @@ IWDG_HandleTypeDef hiwdg;
 osThreadId_t flightTaskHandle;
 const osThreadAttr_t flightTask_attributes = {
   .name = "flightTask",
-  .stack_size = 256 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for telemetryTask */
 osThreadId_t telemetryTaskHandle;
 const osThreadAttr_t telemetryTask_attributes = {
   .name = "telemetryTask",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for sensorsTask */
 osThreadId_t sensorsTaskHandle;
 const osThreadAttr_t sensorsTask_attributes = {
   .name = "sensorsTask",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* USER CODE BEGIN PV */
@@ -262,6 +262,14 @@ int main(void)
 
   /* creation of sensorsTask */
   sensorsTaskHandle = osThreadNew(StartsensorsTask, NULL, &sensorsTask_attributes);
+
+  /* Never start the scheduler with a missing task. Doing so can eventually
+     present as corrupted FreeRTOS list metadata in the tick interrupt. */
+  if (flightTaskHandle == NULL || telemetryTaskHandle == NULL ||
+      sensorsTaskHandle == NULL)
+  {
+    NVIC_SystemReset();
+  }
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */

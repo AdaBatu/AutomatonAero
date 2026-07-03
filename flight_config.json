@@ -102,6 +102,11 @@
     "write_timeout_ms": 20
   },
   "recovery": {
+    "freertos_heap_bytes": 8192,
+    "flight_task_stack_bytes": 2048,
+    "sensors_task_stack_bytes": 2048,
+    "telemetry_task_stack_bytes": 1024,
+    "stack_overflow_check_level": 2,
     "i2c_failures_before_reset": 5,
     "task_heartbeat_timeout_ms": 1500,
     "watchdog_prescaler": 64,
