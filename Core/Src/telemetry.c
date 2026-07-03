@@ -254,53 +254,45 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
         htelem->rx_active = true;
     }
 
-    config_packet_t command;
-    int16_t len = SX1278_ReadPacket(htelem->radio, (uint8_t *)&command,
-                                    sizeof(command));
+    uint8_t frame[64];
+    config_message_t command;
+    int16_t len = SX1278_ReadPacket(htelem->radio, frame, sizeof(frame));
     if (len <= 0) return;
     htelem->config_rx_count++;
-    if (len != (int16_t)sizeof(command)) {
+    if (!config_decode(&command, frame, (size_t)len, CONFIG_TYPE_SET)) {
         htelem->config_invalid_count++;
-        htelem->last_config_status = (uint8_t)(0x80U | ((uint8_t)len & 0x7FU));
-        printf("LoRa config rejected: len=%d\r\n", (int)len);
-        return;
-    }
-    if (!config_packet_valid(&command, CONFIG_TYPE_SET)) {
-        htelem->config_invalid_count++;
-        htelem->last_config_status = CONFIG_STATUS_UNAUTHORIZED;
-        printf("LoRa config rejected: integrity tag\r\n");
+        htelem->last_config_status = CONFIG_STATUS_BAD_PACKET;
+        printf("LoRa config rejected: invalid frame len=%d\r\n", (int)len);
         return;
     }
 
-    printf("LoRa config received: parameter=%u nonce=%08lX\r\n",
-           command.parameter, (unsigned long)command.nonce);
+    printf("LoRa config received: parameter=%u sequence=%08lX\r\n",
+           command.parameter, (unsigned long)command.sequence);
 
     uint8_t status;
-    if (command.nonce == htelem->last_config_nonce &&
+    if (command.sequence == htelem->last_config_nonce &&
         command.parameter == htelem->last_config_parameter) {
         status = htelem->last_config_status;
     } else {
         status = Telemetry_ApplyConfig(htelem, command.parameter,
                                        command.value_milli);
-        htelem->last_config_nonce = command.nonce;
+        htelem->last_config_nonce = command.sequence;
         htelem->last_config_parameter = command.parameter;
         htelem->last_config_value_milli = command.value_milli;
         htelem->last_config_status = status;
     }
 
-    config_packet_t ack = {
-        .magic = CONFIG_MAGIC,
-        .version = CONFIG_VERSION,
+    config_message_t ack = {
         .type = CONFIG_TYPE_ACK,
-        .nonce = command.nonce,
+        .sequence = command.sequence,
         .parameter = command.parameter,
         .status = status,
-        .value_milli = command.value_milli,
-        .auth_tag = 0
+        .value_milli = command.value_milli
     };
-    config_packet_seal(&ack);
+    uint8_t ack_frame[CONFIG_WIRE_SIZE];
+    config_encode(ack_frame, &ack);
     htelem->rx_active = false;
-    (void)SX1278_Transmit(htelem->radio, (uint8_t *)&ack, sizeof(ack));
+    (void)SX1278_Transmit(htelem->radio, ack_frame, sizeof(ack_frame));
     printf("LoRa config ACK sent: status=%u\r\n", status);
     (void)SX1278_StartReceive(htelem->radio);
     htelem->rx_active = true;

@@ -1,14 +1,18 @@
 #ifndef CONFIG_PROTOCOL_H
 #define CONFIG_PROTOCOL_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
-#define CONFIG_MAGIC          0xC35AU
-#define CONFIG_VERSION        1U
-#define CONFIG_TYPE_SET       1U
-#define CONFIG_TYPE_ACK       2U
-#define CONFIG_AUTH_KEY       0x7D39A5C3UL
+/* Versioned request/response frame carried as one LoRa packet.
+ * Multi-byte values are explicitly little-endian; C structs never go on air.
+ * CRC-16/CCITT-FALSE: polynomial 0x1021, initial value 0xFFFF. */
+#define CONFIG_MAGIC_0          0xA5U
+#define CONFIG_MAGIC_1          0x5AU
+#define CONFIG_VERSION          1U
+#define CONFIG_TYPE_SET         1U
+#define CONFIG_TYPE_ACK         2U
+#define CONFIG_WIRE_SIZE        16U
 
 typedef enum {
     CONFIG_PARAM_ROLL_KP = 1,
@@ -30,38 +34,78 @@ typedef enum {
     CONFIG_STATUS_UNKNOWN_PARAM
 } config_status_t;
 
-typedef struct __attribute__((packed)) {
-    uint16_t magic;
-    uint8_t version;
+typedef struct {
     uint8_t type;
-    uint32_t nonce;
+    uint32_t sequence;
     uint8_t parameter;
     uint8_t status;
     int32_t value_milli;
-    uint32_t auth_tag;
-} config_packet_t;
+} config_message_t;
 
-_Static_assert(sizeof(config_packet_t) == 18, "config protocol size changed");
-
-static inline uint32_t config_auth_tag(const config_packet_t *packet)
+static inline uint16_t config_crc16(const uint8_t *data, size_t length)
 {
-    (void)packet;
-    return CONFIG_AUTH_KEY;
+    uint16_t crc = 0xFFFFU;
+    for (size_t i = 0; i < length; ++i) {
+        crc ^= (uint16_t)data[i] << 8;
+        for (uint8_t bit = 0; bit < 8U; ++bit) {
+            crc = (crc & 0x8000U) != 0U
+                    ? (uint16_t)((crc << 1) ^ 0x1021U)
+                    : (uint16_t)(crc << 1);
+        }
+    }
+    return crc;
 }
 
-static inline void config_packet_seal(config_packet_t *packet)
+static inline void config_put_u32_le(uint8_t *dst, uint32_t value)
 {
-    uint8_t *tag = (uint8_t *)packet + offsetof(config_packet_t, auth_tag);
-    tag[0] = 0xC3U;
-    tag[1] = 0xA5U;
-    tag[2] = 0x39U;
-    tag[3] = 0x7DU;
+    dst[0] = (uint8_t)value;
+    dst[1] = (uint8_t)(value >> 8);
+    dst[2] = (uint8_t)(value >> 16);
+    dst[3] = (uint8_t)(value >> 24);
 }
 
-static inline int config_packet_valid(const config_packet_t *packet, uint8_t type)
+static inline uint32_t config_get_u32_le(const uint8_t *src)
 {
-    return packet->magic == CONFIG_MAGIC &&
-           packet->version == CONFIG_VERSION && packet->type == type;
+    return (uint32_t)src[0] | ((uint32_t)src[1] << 8) |
+           ((uint32_t)src[2] << 16) | ((uint32_t)src[3] << 24);
+}
+
+static inline void config_encode(uint8_t frame[CONFIG_WIRE_SIZE],
+                                 const config_message_t *message)
+{
+    frame[0] = CONFIG_MAGIC_0;
+    frame[1] = CONFIG_MAGIC_1;
+    frame[2] = CONFIG_VERSION;
+    frame[3] = message->type;
+    config_put_u32_le(&frame[4], message->sequence);
+    frame[8] = message->parameter;
+    frame[9] = message->status;
+    config_put_u32_le(&frame[10], (uint32_t)message->value_milli);
+    uint16_t crc = config_crc16(frame, CONFIG_WIRE_SIZE - 2U);
+    frame[14] = (uint8_t)crc;
+    frame[15] = (uint8_t)(crc >> 8);
+}
+
+static inline int config_decode(config_message_t *message,
+                                const uint8_t *frame, size_t length,
+                                uint8_t expected_type)
+{
+    if (length != CONFIG_WIRE_SIZE || frame[0] != CONFIG_MAGIC_0 ||
+        frame[1] != CONFIG_MAGIC_1 || frame[2] != CONFIG_VERSION ||
+        frame[3] != expected_type) {
+        return 0;
+    }
+    uint16_t received_crc = (uint16_t)frame[14] |
+                            ((uint16_t)frame[15] << 8);
+    if (config_crc16(frame, CONFIG_WIRE_SIZE - 2U) != received_crc) {
+        return 0;
+    }
+    message->type = frame[3];
+    message->sequence = config_get_u32_le(&frame[4]);
+    message->parameter = frame[8];
+    message->status = frame[9];
+    message->value_milli = (int32_t)config_get_u32_le(&frame[10]);
+    return 1;
 }
 
 #endif
