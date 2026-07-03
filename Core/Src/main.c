@@ -864,6 +864,8 @@ static void Flight_InitSensors(void)
     
     /* Initialize power sensor on ADC1 */
     PowerSensor_Init(&hpower, &hadc1);
+    /* Aircraft must be unpowered/no-current during this brief startup sample. */
+    PowerSensor_CalibrateZeroCurrent(&hpower);
 }
 
 /**

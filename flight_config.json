@@ -1,0 +1,110 @@
+{
+  "note": "Build-time configuration inventory. Keep matching C constants synchronized; the STM32 does not read this file at runtime.",
+  "airframe": {
+    "control_axes": ["roll", "pitch"],
+    "max_rc_attitude_degrees": 30.0,
+    "control_loop_hz": 100
+  },
+  "pid": {
+    "output_min": -1.0,
+    "output_max": 1.0,
+    "integral_limit": 0.5,
+    "roll": { "kp": 1.5, "ki": 0.1, "kd": 0.05 },
+    "pitch": { "kp": 1.5, "ki": 0.1, "kd": 0.05 },
+    "yaw_unused": { "kp": 2.0, "ki": 0.05, "kd": 0.1 }
+  },
+  "kalman_filter": {
+    "q_angle": 0.001,
+    "q_bias": 0.003,
+    "r_measure": 0.03
+  },
+  "servos": {
+    "pwm_frequency_hz": 50,
+    "timer_frequency_hz": 80000,
+    "timer_period_counts": 1600,
+    "minimum_pulse_us": 1000,
+    "center_pulse_us": 1500,
+    "maximum_pulse_us": 2000,
+    "roll_output_pin": "PA8",
+    "pitch_output_pin": "PA9"
+  },
+  "rc_input": {
+    "minimum_pulse_us": 1000,
+    "center_pulse_us": 1500,
+    "maximum_pulse_us": 2000,
+    "center_deadband_us": 50,
+    "signal_timeout_ms": 500,
+    "roll_pin": "PB2",
+    "pitch_pin": "PB15"
+  },
+  "imu_mpu6050": {
+    "primary_i2c_address": "0x68",
+    "alternate_i2c_address": "0x69",
+    "sample_rate_divider": 4,
+    "dlpf_bandwidth_hz": 42,
+    "gyro_full_scale_dps": 500,
+    "accelerometer_full_scale_g": 4,
+    "startup_gyro_calibration_samples": 200,
+    "i2c_timeout_ms": 20
+  },
+  "barometer_ms5611": {
+    "primary_i2c_address": "0x77",
+    "alternate_i2c_address": "0x76",
+    "oversampling_ratio": 4096,
+    "reference_pressure_pa": 101325.0,
+    "i2c_timeout_ms": 20
+  },
+  "current_sensor": {
+    "model": "ACS758LCB-100B-PFF-T on CJMCU-758",
+    "module_supply_voltage_v": 3.3,
+    "adc_reference_voltage_v": 3.3,
+    "adc_resolution_bits": 12,
+    "output": "OUT1",
+    "input_pin": "PC0 / Arduino A5 / ADC1_IN1",
+    "voltage_divider_ratio": 1.0,
+    "nominal_zero_current_voltage_v": 1.65,
+    "nominal_sensitivity_v_per_a": 0.0132,
+    "rated_current_a": 100,
+    "bidirectional": true,
+    "startup_zero_calibration_samples": 128,
+    "startup_zero_calibration_delay_ms": 2,
+    "filter_alpha": 0.1
+  },
+  "voltage_sensing": {
+    "enabled": false,
+    "input_pin": null,
+    "note": "PC1 voltage acquisition was removed. Power cannot be calculated without a separate battery-voltage input."
+  },
+  "gps": {
+    "baud_rate": 9600,
+    "receive_buffer_bytes": 256,
+    "maximum_sentence_bytes": 128,
+    "stale_timeout_ms": 2000,
+    "rearm_interval_ms": 1000
+  },
+  "lora": {
+    "frequency_hz": 433000000,
+    "bandwidth_hz": 125000,
+    "spreading_factor": 7,
+    "coding_rate": "4/5",
+    "tx_power_dbm": 17,
+    "preamble_symbols": 8,
+    "sync_word": "0x12",
+    "spi_timeout_ms": 20,
+    "telemetry_rate_hz": 10,
+    "transmit_timeout_ms": 1000
+  },
+  "serial_telemetry": {
+    "enabled": true,
+    "requested_rate_hz": 1,
+    "uart_baud_rate": 115200,
+    "write_timeout_ms": 20
+  },
+  "recovery": {
+    "i2c_failures_before_reset": 5,
+    "task_heartbeat_timeout_ms": 1500,
+    "watchdog_prescaler": 64,
+    "watchdog_reload": 2000,
+    "watchdog_approximate_timeout_ms": 4000
+  }
+}

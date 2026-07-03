@@ -152,17 +152,15 @@ void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t
     printf("Throttle: %3d (0-255) | %.1f%%\n", pwm_throttle, throttle * 100.0f);
     printf("\n");
     
-    // Power Data
-    printf("--- Power ---\n");
+    // Current Data (battery-voltage sensing is not fitted)
+    printf("--- Current Sensor ---\n");
     if (state->power.valid)
     {
-        printf("Voltage: %.2f V | Current: %.2f A\n",
-               state->power.voltage, state->power.current);
-        printf("Power: %.1f W\n", state->power.power);
+        printf("Current: %.2f A\n", state->power.current);
     }
     else
     {
-        printf("Power sensor: NOT VALID\n");
+        printf("Current sensor: NOT VALID\n");
     }
     printf("\n");
     
