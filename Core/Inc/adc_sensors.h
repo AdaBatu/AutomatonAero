@@ -31,6 +31,8 @@ typedef struct {
     // Filtered values
     float current_filtered;
     float filter_alpha;     // Low-pass filter coefficient (0-1)
+    float ampere_hours;
+    uint32_t last_sample_ms;
 } PowerSensor_Handle_t;
 
 /* Function prototypes */

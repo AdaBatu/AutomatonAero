@@ -52,6 +52,7 @@ typedef struct {
     float voltage;         // Volts
     float current;         // Amps
     float power;           // Watts
+    float ampere_hours;    // Consumed Ah since startup
     bool valid;
 } Power_Data_t;
 
@@ -108,6 +109,8 @@ typedef struct {
     // Power
     uint16_t voltage;      // mV
     uint16_t current;      // mA
+    uint16_t power;        // W
+    uint32_t consumed_mah; // mAh since startup
     
     // Control outputs
     uint8_t servo_roll;    // 0-255

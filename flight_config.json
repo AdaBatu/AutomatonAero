@@ -1,5 +1,5 @@
 {
-  "note": "Build-time configuration inventory. Keep matching C constants synchronized; the STM32 does not read this file at runtime.",
+  "note": "Build-time configuration inventory. battery_voltage_v is read by CMake and compiled into the firmware; other matching C constants must currently be kept synchronized.",
   "airframe": {
     "control_axes": ["roll", "pitch"],
     "max_rc_attitude_degrees": 30.0,
@@ -73,7 +73,8 @@
   "voltage_sensing": {
     "enabled": false,
     "input_pin": null,
-    "note": "PC1 voltage acquisition was removed. Power cannot be calculated without a separate battery-voltage input."
+    "battery_voltage_v": 22.2,
+    "note": "Fixed configured battery voltage used for estimated watts; PC1 physical voltage acquisition remains removed. Set this to your actual nominal voltage before building."
   },
   "gps": {
     "baud_rate": 9600,

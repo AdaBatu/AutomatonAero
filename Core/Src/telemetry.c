@@ -95,9 +95,13 @@ void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *stat
     if (state->power.valid) {
         pkt->voltage = (uint16_t)(state->power.voltage * 1000.0f);  // mV
         pkt->current = (uint16_t)(state->power.current * 1000.0f);  // mA
+        pkt->power = (uint16_t)(state->power.power);
+        pkt->consumed_mah = (uint32_t)(state->power.ampere_hours * 1000.0f);
     } else {
         pkt->voltage = 0;
         pkt->current = 0;
+        pkt->power = 0;
+        pkt->consumed_mah = 0;
     }
     
     // Control outputs

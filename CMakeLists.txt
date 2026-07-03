@@ -28,6 +28,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 project(${CMAKE_PROJECT_NAME})
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
+# Compile selected settings from the human-editable JSON configuration.
+file(READ "${CMAKE_SOURCE_DIR}/flight_config.json" FLIGHT_CONFIG_JSON)
+string(JSON FLIGHT_BATTERY_VOLTAGE_V GET
+    "${FLIGHT_CONFIG_JSON}" voltage_sensing battery_voltage_v)
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
+configure_file(
+    "${CMAKE_SOURCE_DIR}/Core/Inc/flight_config_generated.h.in"
+    "${CMAKE_BINARY_DIR}/generated/flight_config_generated.h"
+    @ONLY
+)
+
 # Enable CMake support for ASM and C languages
 enable_language(C ASM)
 
@@ -61,6 +72,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    "${CMAKE_BINARY_DIR}/generated"
 )
 
 # Add project symbols (macros)

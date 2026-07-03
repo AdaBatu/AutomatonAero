@@ -3,6 +3,7 @@
  * @brief ADC-based ACS758 current sensing implementation
  */
 #include "adc_sensors.h"
+#include "flight_config_generated.h"
 
 void PowerSensor_Init(PowerSensor_Handle_t *hpow, ADC_HandleTypeDef *hadc)
 {
@@ -11,6 +12,8 @@ void PowerSensor_Init(PowerSensor_Handle_t *hpow, ADC_HandleTypeDef *hadc)
     hpow->current_offset = CURRENT_OFFSET_V;
     hpow->current_filtered = 0.0f;
     hpow->filter_alpha = 0.1f;
+    hpow->ampere_hours = 0.0f;
+    hpow->last_sample_ms = HAL_GetTick();
     HAL_ADCEx_Calibration_Start(hadc, ADC_SINGLE_ENDED);
 }
 
@@ -52,9 +55,21 @@ HAL_StatusTypeDef PowerSensor_Read(PowerSensor_Handle_t *hpow, Power_Data_t *dat
     hpow->current_filtered = hpow->filter_alpha * current +
                              (1.0f - hpow->filter_alpha) * hpow->current_filtered;
 
-    data->voltage = 0.0f; /* Battery-voltage sensing intentionally not fitted. */
+    uint32_t now_ms = HAL_GetTick();
+    uint32_t elapsed_ms = now_ms - hpow->last_sample_ms;
+    hpow->last_sample_ms = now_ms;
+
+    /* Accumulate consumed capacity/energy. Reverse current is not consumption. */
+    float consumed_current = hpow->current_filtered > 0.0f ?
+                             hpow->current_filtered : 0.0f;
+    float elapsed_hours = (float)elapsed_ms / 3600000.0f;
+    float power_w = CONFIG_BATTERY_VOLTAGE_V * hpow->current_filtered;
+    hpow->ampere_hours += consumed_current * elapsed_hours;
+
+    data->voltage = CONFIG_BATTERY_VOLTAGE_V;
     data->current = hpow->current_filtered;
-    data->power = 0.0f;   /* Cannot calculate power without battery voltage. */
+    data->power = power_w;
+    data->ampere_hours = hpow->ampere_hours;
     data->valid = true;
     return HAL_OK;
 }
@@ -69,4 +84,5 @@ void PowerSensor_CalibrateZeroCurrent(PowerSensor_Handle_t *hpow)
     }
     hpow->current_offset = ADC_ToVoltage((uint32_t)(sum / samples));
     hpow->current_filtered = 0.0f;
+    hpow->last_sample_ms = HAL_GetTick();
 }
