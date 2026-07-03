@@ -34,6 +34,8 @@ typedef struct {
     uint8_t last_config_status;
     uint8_t config_rx_count;
     uint8_t config_invalid_count;
+    uint8_t config_debug_byte0;
+    uint8_t config_debug_byte1;
     bool tx_in_progress;
     bool rx_active;
 } Telemetry_Handle_t;

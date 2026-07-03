@@ -37,6 +37,8 @@ void Telemetry_Init(Telemetry_Handle_t *htelem, SX1278_Handle_t *radio)
     htelem->last_config_status = 0xFFU;
     htelem->config_rx_count = 0U;
     htelem->config_invalid_count = 0U;
+    htelem->config_debug_byte0 = 0U;
+    htelem->config_debug_byte1 = 0U;
     htelem->tx_in_progress = false;
     htelem->rx_active = false;
     
@@ -127,8 +129,14 @@ void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *stat
        bytes for uplink diagnostics without changing the 40-byte packet. */
     (void)servo_yaw;
     (void)esc_throttle;
-    pkt->servo_yaw = htelem->config_rx_count;
-    pkt->esc_throttle = htelem->last_config_status;
+    if (htelem->last_config_status == 0x40U) {
+        /* On bad magic expose the actual first bytes for remote diagnosis. */
+        pkt->servo_yaw = htelem->config_debug_byte0;
+        pkt->esc_throttle = htelem->config_debug_byte1;
+    } else {
+        pkt->servo_yaw = htelem->config_rx_count;
+        pkt->esc_throttle = htelem->last_config_status;
+    }
     
     // Calculate checksum
     pkt->checksum = Telemetry_CalculateChecksum(pkt);
@@ -259,6 +267,8 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
     int16_t len = SX1278_ReadPacket(htelem->radio, frame, sizeof(frame));
     if (len <= 0) return;
     htelem->config_rx_count++;
+    htelem->config_debug_byte0 = frame[0];
+    htelem->config_debug_byte1 = len > 1 ? frame[1] : 0U;
     if (!config_decode(&command, frame, (size_t)len, CONFIG_TYPE_SET)) {
         htelem->config_invalid_count++;
         if (len != (int16_t)CONFIG_WIRE_SIZE) {
