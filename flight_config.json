@@ -2,7 +2,8 @@
   "note": "Build-time configuration inventory. battery_voltage_v is read by CMake and compiled into the firmware; other matching C constants must currently be kept synchronized.",
   "airframe": {
     "control_axes": ["roll", "pitch"],
-    "max_rc_attitude_degrees": 30.0,
+    "system_armed": true,
+    "max_rc_attitude_degrees": 45.0,
     "control_loop_hz": 100
   },
   "pid": {

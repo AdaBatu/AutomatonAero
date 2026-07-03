@@ -29,9 +29,20 @@ project(${CMAKE_PROJECT_NAME})
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
 # Compile selected settings from the human-editable JSON configuration.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/flight_config.json")
 file(READ "${CMAKE_SOURCE_DIR}/flight_config.json" FLIGHT_CONFIG_JSON)
 string(JSON FLIGHT_BATTERY_VOLTAGE_V GET
     "${FLIGHT_CONFIG_JSON}" voltage_sensing battery_voltage_v)
+string(JSON FLIGHT_SYSTEM_ARMED GET
+    "${FLIGHT_CONFIG_JSON}" airframe system_armed)
+string(JSON FLIGHT_MAX_RC_ATTITUDE_DEGREES GET
+    "${FLIGHT_CONFIG_JSON}" airframe max_rc_attitude_degrees)
+if(FLIGHT_SYSTEM_ARMED)
+    set(FLIGHT_SYSTEM_ARMED_VALUE 1)
+else()
+    set(FLIGHT_SYSTEM_ARMED_VALUE 0)
+endif()
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
 configure_file(
     "${CMAKE_SOURCE_DIR}/Core/Inc/flight_config_generated.h.in"

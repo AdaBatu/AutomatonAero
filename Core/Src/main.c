@@ -34,6 +34,7 @@
 #include "telemetry.h"
 #include "rc_input.h"
 #include "serial_telemetry.h"
+#include "flight_config_generated.h"
 #include <string.h>
 #include <stdio.h>
 /* USER CODE END Includes */
@@ -128,7 +129,7 @@ FlightState_t flight_state;
 
 /* Control parameters */
 float throttle_command = 0.0f;  // 0.0 to 1.0
-volatile uint8_t system_armed = 0;
+volatile uint8_t system_armed = CONFIG_SYSTEM_ARMED_DEFAULT;
 
 /* Task heartbeats used by the independent hardware watchdog. */
 static volatile uint32_t sensors_heartbeat = 0;
@@ -884,27 +885,11 @@ static void Flight_InitActuators(void)
     /* Initialize servos on TIM1 */
     Servo_Init(&servo_roll, &htim1, TIM_CHANNEL_1);   // PA8
     Servo_Init(&servo_pitch, &htim1, TIM_CHANNEL_2);  // PA9
-    Servo_Init(&servo_yaw, &htim1, TIM_CHANNEL_3);    // PA10
-    
-    /* Configure PC10 as output for ESC programming */
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    __HAL_RCC_GPIOC_CLK_ENABLE();
-    
-    GPIO_InitStruct.Pin = ESC_PROG_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(ESC_PROG_PORT, &GPIO_InitStruct);
-    HAL_GPIO_WritePin(ESC_PROG_PORT, ESC_PROG_PIN, GPIO_PIN_RESET);
-    
-    /* Initialize ESC on TIM2 with programming pin on PC10 */
-    // Throttle output now on TIM2_CH2 (PB3)
-    ESC_InitWithProg(&esc, &htim2, TIM_CHANNEL_2, ESC_PROG_PORT, ESC_PROG_PIN);
-    
-    /* Center all servos */
+
+    /* Center the two fitted control-surface servos. Yaw and ESC outputs are
+       intentionally not initialized on this airframe. */
     Servo_SetAngle(&servo_roll, 0.0f);
     Servo_SetAngle(&servo_pitch, 0.0f);
-    Servo_SetAngle(&servo_yaw, 0.0f);
 }
 
 /**
@@ -1016,9 +1001,11 @@ static void Flight_ControlLoop(void)
     RC_GetInput(&hrc, &rc_input);
     
     /* ========== UPDATE PID SETPOINTS FROM RC ========== */
-    /* Target = initial orientation + RC stick offset (±30 degrees max) */
-    float rc_roll_offset = RC_StickToAngle(rc_input.roll, 30.0f * 3.14159265f / 180.0f);
-    float rc_pitch_offset = RC_StickToAngle(rc_input.pitch, 30.0f * 3.14159265f / 180.0f);
+    /* Target = initial orientation + configured RC stick offset. */
+    const float max_attitude_rad = CONFIG_MAX_RC_ATTITUDE_DEGREES *
+                                   3.14159265f / 180.0f;
+    float rc_roll_offset = RC_StickToAngle(rc_input.roll, max_attitude_rad);
+    float rc_pitch_offset = RC_StickToAngle(rc_input.pitch, max_attitude_rad);
     
     float target_roll = initial_roll + rc_roll_offset;
     float target_pitch = initial_pitch + rc_pitch_offset;
@@ -1033,9 +1020,9 @@ static void Flight_ControlLoop(void)
     float roll_out, pitch_out, yaw_pid_out;
     FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_pid_out);
     
-    /* Yaw and Throttle: Direct passthrough from RC (1:1) */
-    float yaw_out = rc_input.yaw;
-    throttle_command = rc_input.throttle;
+    /* This airframe has no yaw servo or flight-computer throttle output. */
+    float yaw_out = 0.0f;
+    throttle_command = 0.0f;
     
     /* ========== ACTUATOR OUTPUT ========== */
     if (system_armed) {
@@ -1043,16 +1030,10 @@ static void Flight_ControlLoop(void)
         Servo_SetNormalized(&servo_roll, roll_out);
         Servo_SetNormalized(&servo_pitch, pitch_out);
         
-        /* Apply direct RC yaw (1:1 passthrough) */
-        Servo_SetNormalized(&servo_yaw, yaw_out);
-        
-        /* Set ESC throttle (direct from RC, 1:1 passthrough) */
-        ESC_SetThrottle(&esc, throttle_command);
     } else {
         /* Disarmed - center servos, zero throttle */
         Servo_SetNormalized(&servo_roll, 0.0f);
         Servo_SetNormalized(&servo_pitch, 0.0f);
-        Servo_SetNormalized(&servo_yaw, 0.0f);
     }
     
     /* ========== SERIAL DEBUG TELEMETRY ========== */
@@ -1117,11 +1098,6 @@ void StartflightTask(void *argument)
   
   /* Give sensors time to stabilize */
   osDelay(1000);
-  HAL_IWDG_Refresh(&hiwdg);
-  
-  /* Arm ESC (keep at minimum throttle for 2 seconds) */
-  ESC_Arm(&esc);
-  osDelay(2000);
   HAL_IWDG_Refresh(&hiwdg);
   
   /* Set initial setpoint (level flight) */
