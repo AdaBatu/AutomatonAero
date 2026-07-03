@@ -253,8 +253,12 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
     if (len <= 0) return;
     if (len != (int16_t)sizeof(command) ||
         !config_packet_valid(&command, CONFIG_TYPE_SET)) {
+        printf("LoRa config rejected: len=%d\r\n", (int)len);
         return;
     }
+
+    printf("LoRa config received: parameter=%u nonce=%08lX\r\n",
+           command.parameter, (unsigned long)command.nonce);
 
     uint8_t status;
     if (command.nonce == htelem->last_config_nonce &&
@@ -282,6 +286,7 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
     ack.auth_tag = config_auth_tag(&ack);
     htelem->rx_active = false;
     (void)SX1278_Transmit(htelem->radio, (uint8_t *)&ack, sizeof(ack));
+    printf("LoRa config ACK sent: status=%u\r\n", status);
     (void)SX1278_StartReceive(htelem->radio);
     htelem->rx_active = true;
 }
