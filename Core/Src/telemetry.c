@@ -259,11 +259,16 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
                                     sizeof(command));
     if (len <= 0) return;
     htelem->config_rx_count++;
-    if (len != (int16_t)sizeof(command) ||
-        !config_packet_valid(&command, CONFIG_TYPE_SET)) {
+    if (len != (int16_t)sizeof(command)) {
         htelem->config_invalid_count++;
-        htelem->last_config_status = CONFIG_STATUS_BAD_PACKET;
+        htelem->last_config_status = (uint8_t)(0x80U | ((uint8_t)len & 0x7FU));
         printf("LoRa config rejected: len=%d\r\n", (int)len);
+        return;
+    }
+    if (!config_packet_valid(&command, CONFIG_TYPE_SET)) {
+        htelem->config_invalid_count++;
+        htelem->last_config_status = CONFIG_STATUS_UNAUTHORIZED;
+        printf("LoRa config rejected: integrity tag\r\n");
         return;
     }
 
