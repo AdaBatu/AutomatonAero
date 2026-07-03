@@ -5,6 +5,7 @@
 #include "telemetry.h"
 #include "config_protocol.h"
 #include "pid.h"
+#include "flight_config_generated.h"
 #include <string.h>
 #include <math.h>
 
@@ -27,6 +28,8 @@ void Telemetry_Init(Telemetry_Handle_t *htelem, SX1278_Handle_t *radio)
     htelem->tx_interval_ms = 1000 / TELEMETRY_RATE_HZ;  // 100ms for 10Hz
     htelem->packet_count = 0;
     htelem->recovery_count = 0;
+    htelem->last_config_window = HAL_GetTick();
+    htelem->config_window_until = 0;
     htelem->last_config_nonce = 0;
     htelem->last_config_parameter = 0;
     htelem->last_config_value_milli = 0;
@@ -142,9 +145,17 @@ bool Telemetry_ReadyToSend(Telemetry_Handle_t *htelem)
             return false;
         }
     }
+
+    /* LoRa is half-duplex. Reserve a real receive window; the short gap
+       between 10 Hz telemetry packets is not long enough for a command and
+       its acknowledgement. */
+    uint32_t now = HAL_GetTick();
+    if (htelem->config_window_until != 0U &&
+        (int32_t)(now - htelem->config_window_until) < 0) {
+        return false;
+    }
     
     // Check if enough time has passed
-    uint32_t now = HAL_GetTick();
     if (now - htelem->last_tx_time >= htelem->tx_interval_ms) {
         return true;
     }
@@ -224,6 +235,12 @@ static uint8_t Telemetry_ApplyConfig(Telemetry_Handle_t *htelem,
 void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
 {
     if (htelem->tx_in_progress) return;
+
+    uint32_t now = HAL_GetTick();
+    if ((now - htelem->last_config_window) >= CONFIG_LORA_RX_WINDOW_INTERVAL_MS) {
+        htelem->last_config_window = now;
+        htelem->config_window_until = now + CONFIG_LORA_RX_WINDOW_DURATION_MS;
+    }
 
     if (!htelem->rx_active) {
         if (SX1278_StartReceive(htelem->radio) != HAL_OK) return;

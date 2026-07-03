@@ -96,7 +96,9 @@
     "sync_word": "0x12",
     "spi_timeout_ms": 20,
     "telemetry_rate_hz": 10,
-    "transmit_timeout_ms": 1000
+    "transmit_timeout_ms": 1000,
+    "configuration_receive_window_interval_ms": 1000,
+    "configuration_receive_window_duration_ms": 300
   },
   "remote_configuration": {
     "enabled": true,

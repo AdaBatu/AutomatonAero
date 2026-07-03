@@ -26,6 +26,8 @@ typedef struct {
     uint32_t tx_interval_ms;
     uint32_t packet_count;
     uint32_t recovery_count;
+    uint32_t last_config_window;
+    uint32_t config_window_until;
     uint32_t last_config_nonce;
     int32_t last_config_value_milli;
     uint8_t last_config_parameter;
