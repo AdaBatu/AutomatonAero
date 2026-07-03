@@ -265,7 +265,10 @@ HAL_StatusTypeDef SX1278_StartReceive(SX1278_Handle_t *hdev)
     SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR,
                          SX1278_ReadRegister(hdev, SX1278_REG_FIFO_RX_BASE_ADDR));
     SX1278_WriteRegister(hdev, SX1278_REG_IRQ_FLAGS, 0xFF);
-    return SX1278_SetMode(hdev, SX1278_MODE_RXCONTINUOUS);
+    /* Configuration traffic is slotted. RX single freezes the completed
+       packet in FIFO until software has copied it, unlike continuous mode
+       which may immediately resume and advance FIFO state. */
+    return SX1278_SetMode(hdev, SX1278_MODE_RXSINGLE);
 }
 
 int16_t SX1278_ReadPacket(SX1278_Handle_t *hdev, uint8_t *data, uint8_t max_len)
@@ -274,17 +277,20 @@ int16_t SX1278_ReadPacket(SX1278_Handle_t *hdev, uint8_t *data, uint8_t max_len)
     if ((flags & SX1278_IRQ_RX_DONE) == 0U) {
         return 0;
     }
-    SX1278_WriteRegister(hdev, SX1278_REG_IRQ_FLAGS, flags);
     if ((flags & SX1278_IRQ_PAYLOAD_CRC_ERROR) != 0U) {
+        SX1278_WriteRegister(hdev, SX1278_REG_IRQ_FLAGS, flags);
         return -1;
     }
     uint8_t len = SX1278_ReadRegister(hdev, SX1278_REG_RX_NB_BYTES);
     uint8_t address = SX1278_ReadRegister(hdev, SX1278_REG_FIFO_RX_CURRENT_ADDR);
     SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR, address);
     if (len > max_len) {
+        SX1278_WriteRegister(hdev, SX1278_REG_IRQ_FLAGS, flags);
         return -2;
     }
     SX1278_ReadFIFO(hdev, data, len);
+    /* Clear RxDone only after the complete payload is safely in MCU RAM. */
+    SX1278_WriteRegister(hdev, SX1278_REG_IRQ_FLAGS, flags);
     return (int16_t)len;
 }
 
