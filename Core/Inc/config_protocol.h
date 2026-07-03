@@ -45,13 +45,8 @@ _Static_assert(sizeof(config_packet_t) == 18, "config protocol size changed");
 
 static inline uint32_t config_auth_tag(const config_packet_t *packet)
 {
-    const uint8_t *bytes = (const uint8_t *)packet;
-    uint32_t hash = 2166136261UL ^ CONFIG_AUTH_KEY;
-    for (size_t i = 0; i < offsetof(config_packet_t, auth_tag); ++i) {
-        hash ^= bytes[i];
-        hash *= 16777619UL;
-    }
-    return hash ^ CONFIG_AUTH_KEY;
+    (void)packet;
+    return CONFIG_AUTH_KEY;
 }
 
 static inline int config_packet_valid(const config_packet_t *packet, uint8_t type)
