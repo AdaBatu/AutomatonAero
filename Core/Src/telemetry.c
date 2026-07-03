@@ -16,6 +16,7 @@
 #define RAD_TO_DEG(x) ((x) * 180.0f / M_PI)
 
 extern FlightPID_t flight_pid;
+extern void Flight_RequestAttitudeZero(void);
 
 /* Initialize telemetry manager */
 void Telemetry_Init(Telemetry_Handle_t *htelem, SX1278_Handle_t *radio)
@@ -185,6 +186,11 @@ static uint8_t Telemetry_ApplyConfig(Telemetry_Handle_t *htelem,
             return CONFIG_STATUS_RANGE;
         }
         Telemetry_SetRate(htelem, (uint8_t)(value_milli / 1000));
+        return CONFIG_STATUS_OK;
+    }
+
+    if (parameter == CONFIG_PARAM_ZERO_ATTITUDE) {
+        Flight_RequestAttitudeZero();
         return CONFIG_STATUS_OK;
     }
 

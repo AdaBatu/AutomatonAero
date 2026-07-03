@@ -108,6 +108,9 @@
       "pitch_ki": { "minimum": 0.0, "maximum": 2.0, "requires_disarmed": false },
       "pitch_kd": { "minimum": 0.0, "maximum": 2.0, "requires_disarmed": false },
       "telemetry_rate_hz": { "minimum": 1, "maximum": 20, "requires_disarmed": false }
+    },
+    "actions": {
+      "zero_attitude": "Capture current roll, pitch and yaw as the new runtime zero reference"
     }
   },
   "serial_telemetry": {

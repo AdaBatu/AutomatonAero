@@ -107,9 +107,11 @@ KalmanFilter_t kalman;
 FlightPID_t flight_pid;
 
 /* Initial orientation at power-on (for attitude hold baseline) */
-float initial_roll = 0.0f;
-float initial_pitch = 0.0f;
-bool initial_orientation_captured = false;
+static float attitude_zero_roll = 0.0f;
+static float attitude_zero_pitch = 0.0f;
+static float attitude_zero_yaw = 0.0f;
+static volatile uint8_t attitude_zero_requested = 1U;
+static bool attitude_zero_valid = false;
 
 /* Actuator handles */
 Servo_Handle_t servo_roll;   // TIM1_CH1 - PA8
@@ -162,10 +164,23 @@ static void Flight_InitRCInput(void);
 static void Flight_ControlLoop(void);
 static void Flight_InitWatchdog(void);
 static void Flight_RecoverI2CBus(void);
+void Flight_RequestAttitudeZero(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void Flight_RequestAttitudeZero(void)
+{
+  attitude_zero_requested = 1U;
+}
+
+static float Flight_WrapAngle(float angle)
+{
+  while (angle > 3.14159265f) angle -= 6.28318531f;
+  while (angle < -3.14159265f) angle += 6.28318531f;
+  return angle;
+}
 
 /* USER CODE END 0 */
 
@@ -1033,23 +1048,29 @@ static void Flight_ControlLoop(void)
         flight_state.last_imu_update = now;
         Kalman_Update(&kalman, &flight_state.imu.accel,
                       &flight_state.imu.gyro, dt);
-        Kalman_GetOrientation(&kalman, &flight_state.orientation);
-        if (!initial_orientation_captured && now > 2000U) {
-            initial_roll = flight_state.orientation.roll;
-            initial_pitch = flight_state.orientation.pitch;
-            initial_orientation_captured = true;
+        Orientation_t raw_orientation;
+        Kalman_GetOrientation(&kalman, &raw_orientation);
+        if ((attitude_zero_requested != 0U || !attitude_zero_valid) && now > 2000U) {
+            attitude_zero_roll = raw_orientation.roll;
+            attitude_zero_pitch = raw_orientation.pitch;
+            attitude_zero_yaw = raw_orientation.yaw;
+            attitude_zero_valid = true;
+            attitude_zero_requested = 0U;
         }
+        flight_state.orientation.roll = Flight_WrapAngle(raw_orientation.roll - attitude_zero_roll);
+        flight_state.orientation.pitch = Flight_WrapAngle(raw_orientation.pitch - attitude_zero_pitch);
+        flight_state.orientation.yaw = Flight_WrapAngle(raw_orientation.yaw - attitude_zero_yaw);
     }
     
     /* ========== UPDATE PID SETPOINTS FROM RC ========== */
-    /* Target = initial orientation + configured RC stick offset. */
+    /* Target = calibrated zero attitude + configured RC stick offset. */
     const float max_attitude_rad = CONFIG_MAX_RC_ATTITUDE_DEGREES *
                                    3.14159265f / 180.0f;
     float rc_roll_offset = RC_StickToAngle(rc_input.roll, max_attitude_rad);
     float rc_pitch_offset = RC_StickToAngle(rc_input.pitch, max_attitude_rad);
     
-    float target_roll = initial_roll + rc_roll_offset;
-    float target_pitch = initial_pitch + rc_pitch_offset;
+    float target_roll = rc_roll_offset;
+    float target_pitch = rc_pitch_offset;
     
     /* Set PID targets (yaw setpoint not used - direct passthrough) */
     FlightPID_SetSetpoint(&flight_pid, target_roll, target_pitch, 0.0f);
