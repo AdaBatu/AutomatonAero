@@ -68,7 +68,7 @@ bool SX1278_FIFO_SelfTest(SX1278_Handle_t *hdev,
         0xA5U, 0x5AU, 0x01U, 0x10U, 0xC3U, 0x3CU, 0x69U, 0x96U
     };
     uint8_t received[sizeof(pattern)] = {0};
-    const uint8_t test_address = 0x80U;
+    const uint8_t test_address = 0x40U;
 
     SX1278_SetMode(hdev, SX1278_MODE_STDBY);
     SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR, test_address);
@@ -208,9 +208,9 @@ HAL_StatusTypeDef SX1278_Configure(SX1278_Handle_t *hdev, SX1278_Config_t *confi
     // Set sync word (0x12 for private networks, 0x34 for LoRaWAN)
     SX1278_WriteRegister(hdev, SX1278_REG_SYNC_WORD, config->sync_word);
     
-    // Set FIFO base addresses
+    /* Separate TX and RX halves of the shared FIFO. */
     SX1278_WriteRegister(hdev, SX1278_REG_FIFO_TX_BASE_ADDR, 0x00);
-    SX1278_WriteRegister(hdev, SX1278_REG_FIFO_RX_BASE_ADDR, 0x00);
+    SX1278_WriteRegister(hdev, SX1278_REG_FIFO_RX_BASE_ADDR, 0x80);
     
     // Map DIO0 to TxDone
     SX1278_WriteRegister(hdev, SX1278_REG_DIO_MAPPING_1, 0x40);
