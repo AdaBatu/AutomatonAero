@@ -69,12 +69,15 @@ UART_HandleTypeDef huart2;
 
 IWDG_HandleTypeDef hiwdg;
 
+/* Serializes the MPU6050 and MS5611, which share I2C2 across two tasks. */
+osMutexId_t i2c2MutexHandle;
+
 /* Definitions for flightTask */
 osThreadId_t flightTaskHandle;
 const osThreadAttr_t flightTask_attributes = {
   .name = "flightTask",
   .stack_size = 512 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityAboveNormal,
 };
 /* Definitions for telemetryTask */
 osThreadId_t telemetryTaskHandle;
@@ -239,7 +242,11 @@ int main(void)
   osKernelInitialize();
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+  i2c2MutexHandle = osMutexNew(NULL);
+  if (i2c2MutexHandle == NULL)
+  {
+    NVIC_SystemReset();
+  }
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -988,6 +995,7 @@ static void Flight_RecoverI2CBus(void)
 static void Flight_ControlLoop(void)
 {
     static uint32_t last_loop_time = 0;
+    static uint8_t imu_failures = 0;
     
     uint32_t now = HAL_GetTick();
     float dt = (now - last_loop_time) / 1000.0f;
@@ -999,6 +1007,33 @@ static void Flight_ControlLoop(void)
     RC_Update(&hrc);
     RC_Input_t rc_input;
     RC_GetInput(&hrc, &rc_input);
+
+    /* ========== IMU + ATTITUDE (same 100 Hz task as PID/servos) ========== */
+    HAL_StatusTypeDef imu_status = HAL_BUSY;
+    if (osMutexAcquire(i2c2MutexHandle, 2U) == osOK) {
+        imu_status = MPU6050_ReadAll(&hmpu, &flight_state.imu);
+        if (imu_status != HAL_OK) {
+            if (++imu_failures >= 5U) {
+                Flight_RecoverI2CBus();
+                imu_failures = 0;
+            }
+        } else {
+            imu_failures = 0;
+        }
+        osMutexRelease(i2c2MutexHandle);
+    }
+
+    if (imu_status == HAL_OK) {
+        flight_state.last_imu_update = now;
+        Kalman_Update(&kalman, &flight_state.imu.accel,
+                      &flight_state.imu.gyro, dt);
+        Kalman_GetOrientation(&kalman, &flight_state.orientation);
+        if (!initial_orientation_captured && now > 2000U) {
+            initial_roll = flight_state.orientation.roll;
+            initial_pitch = flight_state.orientation.pitch;
+            initial_orientation_captured = true;
+        }
+    }
     
     /* ========== UPDATE PID SETPOINTS FROM RC ========== */
     /* Target = initial orientation + configured RC stick offset. */
@@ -1021,7 +1056,6 @@ static void Flight_ControlLoop(void)
     FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_pid_out);
     
     /* This airframe has no yaw servo or flight-computer throttle output. */
-    float yaw_out = 0.0f;
     throttle_command = 0.0f;
     
     /* ========== ACTUATOR OUTPUT ========== */
@@ -1035,14 +1069,6 @@ static void Flight_ControlLoop(void)
         Servo_SetNormalized(&servo_roll, 0.0f);
         Servo_SetNormalized(&servo_pitch, 0.0f);
     }
-    
-    /* ========== SERIAL DEBUG TELEMETRY ========== */
-    #ifdef SERIAL_TELEMETRY_ENABLED
-    if (SerialTelemetry_ReadyToPrint(&hserial_telem)) {
-        SerialTelemetry_Print(&hserial_telem, &flight_state, 
-                            roll_out, pitch_out, yaw_out, throttle_command);
-    }
-    #endif
     
     flight_state.loop_count++;
 }
@@ -1155,6 +1181,16 @@ void StarttelemetryTask(void *argument)
       Telemetry_Send(&htelemetry);
     }
     Telemetry_Update(&htelemetry);
+
+    /* Debug UART is intentionally kept out of the time-critical flight task. */
+    #if SERIAL_TELEMETRY_ENABLED
+    if (SerialTelemetry_ReadyToPrint(&hserial_telem)) {
+      float roll_out, pitch_out, yaw_out;
+      FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_out);
+      SerialTelemetry_Print(&hserial_telem, &flight_state,
+                            roll_out, pitch_out, 0.0f, 0.0f);
+    }
+    #endif
     telemetry_heartbeat = HAL_GetTick();
     osDelay(10); // 100Hz loop
   }
@@ -1176,43 +1212,70 @@ void StarttelemetryTask(void *argument)
 void StartsensorsTask(void *argument)
 {
   /* USER CODE BEGIN StartsensorsTask */
-  /* Sensor polling: update IMU, baro, power, GPS */
-  uint8_t whole_bus_failures = 0;
+  /* Non-blocking barometer pipeline plus slow auxiliary sensors. */
+  typedef enum {
+    BARO_START_PRESSURE,
+    BARO_WAIT_PRESSURE,
+    BARO_WAIT_TEMPERATURE
+  } BaroTaskState_t;
+  BaroTaskState_t baro_state = BARO_START_PRESSURE;
+  uint32_t baro_ready_at = 0;
   uint32_t last_gps_rearm = HAL_GetTick();
+  uint32_t last_power_read = 0;
   for(;;)
   {
-    /* IMU update */
-    HAL_StatusTypeDef imu_status = MPU6050_ReadAll(&hmpu, &flight_state.imu);
-    if (imu_status == HAL_OK) {
-      flight_state.last_imu_update = HAL_GetTick();
-      Kalman_Update(&kalman, &flight_state.imu.accel, &flight_state.imu.gyro, 0.01f);
-      Kalman_GetOrientation(&kalman, &flight_state.orientation);
-      if (!initial_orientation_captured && HAL_GetTick() > 2000U) {
-        initial_roll = flight_state.orientation.roll;
-        initial_pitch = flight_state.orientation.pitch;
-        initial_orientation_captured = true;
+    uint32_t now = HAL_GetTick();
+
+    /* Each state performs at most one short I2C operation. Conversion time
+       passes while this task sleeps, rather than blocking the control loop. */
+    if (baro_state == BARO_START_PRESSURE) {
+      HAL_StatusTypeDef status = HAL_BUSY;
+      if (osMutexAcquire(i2c2MutexHandle, 1U) == osOK) {
+        status = MS5611_StartConvPressure(&hbaro);
+        osMutexRelease(i2c2MutexHandle);
       }
-    }
-    /* Barometer update */
-    HAL_StatusTypeDef baro_status = MS5611_ReadBlocking(&hbaro, &flight_state.baro);
-    if (baro_status == HAL_OK) {
-      flight_state.last_baro_update = HAL_GetTick();
+      if (status == HAL_OK) {
+        baro_ready_at = now + 10U;
+        baro_state = BARO_WAIT_PRESSURE;
+      }
+    } else if (baro_state == BARO_WAIT_PRESSURE &&
+               (int32_t)(now - baro_ready_at) >= 0) {
+      HAL_StatusTypeDef status = HAL_BUSY;
+      if (osMutexAcquire(i2c2MutexHandle, 1U) == osOK) {
+        status = MS5611_ReadADC(&hbaro, &hbaro.D1);
+        if (status == HAL_OK) {
+          status = MS5611_StartConvTemperature(&hbaro);
+        }
+        osMutexRelease(i2c2MutexHandle);
+      }
+      if (status == HAL_OK) {
+        baro_ready_at = now + 10U;
+        baro_state = BARO_WAIT_TEMPERATURE;
+      } else if (status != HAL_BUSY) {
+        baro_state = BARO_START_PRESSURE;
+      }
+    } else if (baro_state == BARO_WAIT_TEMPERATURE &&
+               (int32_t)(now - baro_ready_at) >= 0) {
+      HAL_StatusTypeDef status = HAL_BUSY;
+      if (osMutexAcquire(i2c2MutexHandle, 1U) == osOK) {
+        status = MS5611_ReadADC(&hbaro, &hbaro.D2);
+        osMutexRelease(i2c2MutexHandle);
+      }
+      if (status == HAL_OK &&
+          MS5611_Calculate(&hbaro, &flight_state.baro) == HAL_OK) {
+        flight_state.last_baro_update = now;
+      }
+      if (status != HAL_BUSY) {
+        baro_state = BARO_START_PRESSURE;
+      }
     }
 
-    /* If every I2C device fails repeatedly, reset the bus and continue. */
-    if (imu_status != HAL_OK && baro_status != HAL_OK) {
-      if (++whole_bus_failures >= 5U) {
-        Flight_RecoverI2CBus();
-        whole_bus_failures = 0;
-      }
-    } else {
-      whole_bus_failures = 0;
+    if (now - last_power_read >= 20U) {
+      PowerSensor_Read(&hpower, &flight_state.power);
+      last_power_read = now;
     }
-    /* Power sensor update */
-    PowerSensor_Read(&hpower, &flight_state.power);
     /* GPS update (if needed) */
     GPS_GetData(&hgps, &flight_state.gps);
-    uint32_t now = HAL_GetTick();
     if ((now - flight_state.last_gps_update) > 2000U &&
         (now - last_gps_rearm) > 1000U) {
       HAL_UART_AbortReceive_IT(&huart4);
@@ -1221,7 +1284,7 @@ void StartsensorsTask(void *argument)
       last_gps_rearm = now;
     }
     sensors_heartbeat = now;
-    osDelay(10); // 100Hz loop
+    osDelay(1);
   }
   /* Infinite loop */
   for(;;)

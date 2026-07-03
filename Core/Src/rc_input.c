@@ -52,6 +52,12 @@ void RC_Init(RC_Handle_t *hrc)
     hrc->data.yaw = 0.0f;
     hrc->data.valid = false;
     hrc->data.last_update = 0;
+
+    /* Cortex-M cycle counter gives sub-microsecond edge timing. HAL_GetTick()
+       is only 1 ms and cannot resolve normal 1000-2000 us RC pulses. */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
     
     /* Configure GPIO pins for EXTI (rising and falling edge) */
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -81,24 +87,23 @@ void RC_EXTI_Handler(RC_Handle_t *hrc, uint16_t GPIO_Pin)
     if (channel < 0) return;
     
     uint32_t now = HAL_GetTick();
+    uint32_t now_cycles = DWT->CYCCNT;
     GPIO_PinState state = HAL_GPIO_ReadPin(GPIOB, GPIO_Pin);
     
     if (state == GPIO_PIN_SET) {
         /* Rising edge - start measuring */
-        hrc->rise_time[channel] = now;
+        hrc->rise_time[channel] = now_cycles;
         hrc->measuring[channel] = true;
     } else if (hrc->measuring[channel]) {
         /* Falling edge - calculate pulse width */
-        uint32_t pulse = now - hrc->rise_time[channel];
+        uint32_t elapsed_cycles = now_cycles - hrc->rise_time[channel];
+        uint32_t cycles_per_us = SystemCoreClock / 1000000U;
+        uint32_t pulse = elapsed_cycles / cycles_per_us;
         hrc->measuring[channel] = false;
         
-        /* Validate pulse width (RC signals are typically 1000-2000us) */
-        /* We're measuring in ms due to HAL_GetTick resolution, so convert */
-        /* For more accurate timing, use a hardware timer */
-        if (pulse >= 1 && pulse <= 3) {
-            /* Convert ms to approximate us (rough, but functional) */
-            /* For precise timing, implement using TIM input capture */
-            hrc->pulse_us[channel] = pulse * 1000;
+        /* Accept a little margin around normal 1000-2000 us RC PWM. */
+        if (pulse >= 800U && pulse <= 2200U) {
+            hrc->pulse_us[channel] = (uint16_t)pulse;
             hrc->last_pulse_time[channel] = now;
         }
     }
