@@ -298,7 +298,7 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
         .value_milli = command.value_milli,
         .auth_tag = 0
     };
-    ack.auth_tag = config_auth_tag(&ack);
+    config_packet_seal(&ack);
     htelem->rx_active = false;
     (void)SX1278_Transmit(htelem->radio, (uint8_t *)&ack, sizeof(ack));
     printf("LoRa config ACK sent: status=%u\r\n", status);
