@@ -53,21 +53,11 @@ static void SX1278_WriteFIFO(SX1278_Handle_t *hdev, uint8_t *data, uint8_t len)
 
 static void SX1278_ReadFIFO(SX1278_Handle_t *hdev, uint8_t *data, uint8_t len)
 {
-    uint8_t tx[256] = {0};
-    uint8_t rx[256] = {0};
-    tx[0] = SX1278_REG_FIFO & 0x7F;
-
-    /* The FIFO address byte and payload clocks are one SPI transaction.
-       Splitting them across HAL transmit/receive calls can insert a bus-state
-       transition and shift the received application frame by one byte. */
-    SX1278_NSS_Low(hdev);
-    HAL_StatusTypeDef status = HAL_SPI_TransmitReceive(
-        hdev->hspi, tx, rx, (uint16_t)len + 1U, SPI_TIMEOUT);
-    SX1278_NSS_High(hdev);
-    if (status == HAL_OK) {
-        for (uint8_t i = 0U; i < len; ++i) data[i] = rx[i + 1U];
-    } else {
-        for (uint8_t i = 0U; i < len; ++i) data[i] = 0U;
+    /* Reading RegFifo advances the radio's internal FIFO pointer. Use the
+       already proven register-read primitive for every byte. This avoids
+       STM32 HAL burst-transfer/FIFO-threshold differences on this board. */
+    for (uint8_t i = 0U; i < len; ++i) {
+        data[i] = SX1278_ReadRegister(hdev, SX1278_REG_FIFO);
     }
 }
 
