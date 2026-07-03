@@ -5,7 +5,7 @@
 #include "ms5611.h"
 #include <math.h>
 
-#define I2C_TIMEOUT     100
+#define I2C_TIMEOUT     20
 
 /* Conversion delay in microseconds based on OSR */
 static const uint16_t conv_delay_us[] = { 600, 1200, 2300, 4600, 9100 };

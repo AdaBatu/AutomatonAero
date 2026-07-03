@@ -4,7 +4,7 @@
  */
 #include "sx1278.h"
 
-#define SPI_TIMEOUT     100
+#define SPI_TIMEOUT     20
 
 /* Internal helper functions */
 static void SX1278_NSS_Low(SX1278_Handle_t *hdev)

@@ -14,6 +14,7 @@
 
 /* Telemetry transmission rate */
 #define TELEMETRY_RATE_HZ       10      // 10 packets per second
+#define TELEMETRY_TX_TIMEOUT_MS 1000U   // Recover if TxDone is never observed
 
 /* Telemetry manager */
 typedef struct {
@@ -21,8 +22,10 @@ typedef struct {
     
     Telemetry_Packet_t packet;
     uint32_t last_tx_time;
+    uint32_t tx_start_time;
     uint32_t tx_interval_ms;
     uint32_t packet_count;
+    uint32_t recovery_count;
     bool tx_in_progress;
 } Telemetry_Handle_t;
 

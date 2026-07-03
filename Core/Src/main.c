@@ -66,6 +66,8 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart2;
 
+IWDG_HandleTypeDef hiwdg;
+
 /* Definitions for flightTask */
 osThreadId_t flightTaskHandle;
 const osThreadAttr_t flightTask_attributes = {
@@ -128,6 +130,10 @@ FlightState_t flight_state;
 float throttle_command = 0.0f;  // 0.0 to 1.0
 volatile uint8_t system_armed = 0;
 
+/* Task heartbeats used by the independent hardware watchdog. */
+static volatile uint32_t sensors_heartbeat = 0;
+static volatile uint32_t telemetry_heartbeat = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -150,6 +156,8 @@ static void Flight_InitActuators(void);
 static void Flight_InitRadio(void);
 static void Flight_InitRCInput(void);
 static void Flight_ControlLoop(void);
+static void Flight_InitWatchdog(void);
+static void Flight_RecoverI2CBus(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -218,6 +226,11 @@ int main(void)
   
   /* Initialize serial debug telemetry (0.25Hz = print every 4 seconds) */
   SerialTelemetry_Init(&hserial_telem, 0.25f);
+
+  /* Last-resort recovery for a genuinely wedged peripheral/task. */
+  sensors_heartbeat = HAL_GetTick();
+  telemetry_heartbeat = HAL_GetTick();
+  Flight_InitWatchdog();
   
   /* USER CODE END 2 */
 
@@ -949,13 +962,37 @@ static void Flight_InitRCInput(void)
 }
 
 /**
+ * @brief Start an approximately four-second independent watchdog.
+ * It is refreshed only while both connection-owning tasks are alive.
+ */
+static void Flight_InitWatchdog(void)
+{
+    hiwdg.Instance = IWDG;
+    hiwdg.Init.Prescaler = IWDG_PRESCALER_64;
+    hiwdg.Init.Reload = 2000;
+    hiwdg.Init.Window = IWDG_WINDOW_DISABLE;
+    if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
+        NVIC_SystemReset();
+    }
+}
+
+/**
+ * @brief Reset the I2C peripheral after repeated whole-bus failures.
+ * Sensor drivers retain their addresses/calibration and resume on the next poll.
+ */
+static void Flight_RecoverI2CBus(void)
+{
+    HAL_I2C_DeInit(&hi2c2);
+    HAL_Delay(2);
+    MX_I2C2_Init();
+}
+
+/**
  * @brief Main flight control loop - called from RTOS task
  */
 static void Flight_ControlLoop(void)
 {
     static uint32_t last_loop_time = 0;
-    static uint32_t last_baro_time = 0;
-    static uint32_t last_power_time = 0;
     
     uint32_t now = HAL_GetTick();
     float dt = (now - last_loop_time) / 1000.0f;
@@ -967,41 +1004,6 @@ static void Flight_ControlLoop(void)
     RC_Update(&hrc);
     RC_Input_t rc_input;
     RC_GetInput(&hrc, &rc_input);
-    
-    /* ========== READ IMU (High Priority - 100Hz+) ========== */
-    if (MPU6050_ReadAll(&hmpu, &flight_state.imu) == HAL_OK) {
-        flight_state.last_imu_update = now;
-        
-        /* Update Kalman filter */
-        Kalman_Update(&kalman, 
-                      &flight_state.imu.accel, 
-                      &flight_state.imu.gyro, 
-                      dt);
-        
-        /* Get filtered orientation */
-        Kalman_GetOrientation(&kalman, &flight_state.orientation);
-        
-        /* Capture initial orientation after 2 seconds of stable readings */
-        if (!initial_orientation_captured && now > 2000) {
-            initial_roll = flight_state.orientation.roll;
-            initial_pitch = flight_state.orientation.pitch;
-            initial_orientation_captured = true;
-        }
-    }
-    
-    /* ========== READ BAROMETER (10Hz) ========== */
-    if (now - last_baro_time >= 100) {
-        last_baro_time = now;
-        if (MS5611_ReadBlocking(&hbaro, &flight_state.baro) == HAL_OK) {
-            flight_state.last_baro_update = now;
-        }
-    }
-    
-    /* ========== READ POWER SENSOR (5Hz) ========== */
-    if (now - last_power_time >= 200) {
-        last_power_time = now;
-        PowerSensor_Read(&hpower, &flight_state.power);
-    }
     
     /* ========== UPDATE PID SETPOINTS FROM RC ========== */
     /* Target = initial orientation + RC stick offset (±30 degrees max) */
@@ -1042,22 +1044,6 @@ static void Flight_ControlLoop(void)
         Servo_SetNormalized(&servo_pitch, 0.0f);
         Servo_SetNormalized(&servo_yaw, 0.0f);
     }
-    
-    /* ========== TELEMETRY (10Hz) ========== */
-    if (Telemetry_ReadyToSend(&htelemetry)) {
-        /* Convert servo outputs to 0-255 range for telemetry */
-        uint8_t telem_roll = (uint8_t)((roll_out + 1.0f) * 127.5f);
-        uint8_t telem_pitch = (uint8_t)((pitch_out + 1.0f) * 127.5f);
-        uint8_t telem_yaw = (uint8_t)((yaw_out + 1.0f) * 127.5f);
-        uint8_t telem_throttle = (uint8_t)(throttle_command * 255.0f);
-        
-        Telemetry_BuildPacket(&htelemetry, &flight_state,
-                              telem_roll, telem_pitch, telem_yaw, telem_throttle);
-        Telemetry_Send(&htelemetry);
-    }
-    
-    /* Update telemetry state */
-    Telemetry_Update(&htelemetry);
     
     /* ========== SERIAL DEBUG TELEMETRY ========== */
     #ifdef SERIAL_TELEMETRY_ENABLED
@@ -1121,10 +1107,12 @@ void StartflightTask(void *argument)
   
   /* Give sensors time to stabilize */
   osDelay(1000);
+  HAL_IWDG_Refresh(&hiwdg);
   
   /* Arm ESC (keep at minimum throttle for 2 seconds) */
   ESC_Arm(&esc);
   osDelay(2000);
+  HAL_IWDG_Refresh(&hiwdg);
   
   /* Set initial setpoint (level flight) */
   FlightPID_SetSetpoint(&flight_pid, 0.0f, 0.0f, 0.0f);
@@ -1140,6 +1128,13 @@ void StartflightTask(void *argument)
     
     /* GPS data is updated via interrupt - copy to flight state */
     GPS_GetData(&hgps, &flight_state.gps);
+
+    /* Do not hide a dead task by feeding the watchdog from only this task. */
+    uint32_t now = HAL_GetTick();
+    if ((now - sensors_heartbeat) < 1500U &&
+        (now - telemetry_heartbeat) < 1500U) {
+      HAL_IWDG_Refresh(&hiwdg);
+    }
     
     /* Wait for next period */
     last_tick += loop_period_ms;
@@ -1174,6 +1169,7 @@ void StarttelemetryTask(void *argument)
       Telemetry_Send(&htelemetry);
     }
     Telemetry_Update(&htelemetry);
+    telemetry_heartbeat = HAL_GetTick();
     osDelay(10); // 100Hz loop
   }
   /* Infinite loop */
@@ -1195,20 +1191,50 @@ void StartsensorsTask(void *argument)
 {
   /* USER CODE BEGIN StartsensorsTask */
   /* Sensor polling: update IMU, baro, power, GPS */
+  uint8_t whole_bus_failures = 0;
+  uint32_t last_gps_rearm = HAL_GetTick();
   for(;;)
   {
     /* IMU update */
-    if (MPU6050_ReadAll(&hmpu, &flight_state.imu) == HAL_OK) {
+    HAL_StatusTypeDef imu_status = MPU6050_ReadAll(&hmpu, &flight_state.imu);
+    if (imu_status == HAL_OK) {
       flight_state.last_imu_update = HAL_GetTick();
       Kalman_Update(&kalman, &flight_state.imu.accel, &flight_state.imu.gyro, 0.01f);
       Kalman_GetOrientation(&kalman, &flight_state.orientation);
+      if (!initial_orientation_captured && HAL_GetTick() > 2000U) {
+        initial_roll = flight_state.orientation.roll;
+        initial_pitch = flight_state.orientation.pitch;
+        initial_orientation_captured = true;
+      }
     }
     /* Barometer update */
-    MS5611_ReadBlocking(&hbaro, &flight_state.baro);
+    HAL_StatusTypeDef baro_status = MS5611_ReadBlocking(&hbaro, &flight_state.baro);
+    if (baro_status == HAL_OK) {
+      flight_state.last_baro_update = HAL_GetTick();
+    }
+
+    /* If every I2C device fails repeatedly, reset the bus and continue. */
+    if (imu_status != HAL_OK && baro_status != HAL_OK) {
+      if (++whole_bus_failures >= 5U) {
+        Flight_RecoverI2CBus();
+        whole_bus_failures = 0;
+      }
+    } else {
+      whole_bus_failures = 0;
+    }
     /* Power sensor update */
     PowerSensor_Read(&hpower, &flight_state.power);
     /* GPS update (if needed) */
     GPS_GetData(&hgps, &flight_state.gps);
+    uint32_t now = HAL_GetTick();
+    if ((now - flight_state.last_gps_update) > 2000U &&
+        (now - last_gps_rearm) > 1000U) {
+      HAL_UART_AbortReceive_IT(&huart4);
+      __HAL_UART_CLEAR_OREFLAG(&huart4);
+      HAL_UART_Receive_IT(&huart4, &hgps.rx_byte, 1);
+      last_gps_rearm = now;
+    }
+    sensors_heartbeat = now;
     osDelay(10); // 100Hz loop
   }
   /* Infinite loop */

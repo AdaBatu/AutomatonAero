@@ -5,7 +5,7 @@
 #include "mpu6050.h"
 #include <math.h>
 
-#define I2C_TIMEOUT     100
+#define I2C_TIMEOUT     20
 
 /* Internal helper functions */
 static HAL_StatusTypeDef MPU6050_WriteReg(MPU6050_Handle_t *hdev, uint8_t reg, uint8_t value)

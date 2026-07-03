@@ -18,8 +18,10 @@ void Telemetry_Init(Telemetry_Handle_t *htelem, SX1278_Handle_t *radio)
 {
     htelem->radio = radio;
     htelem->last_tx_time = 0;
+    htelem->tx_start_time = 0;
     htelem->tx_interval_ms = 1000 / TELEMETRY_RATE_HZ;  // 100ms for 10Hz
     htelem->packet_count = 0;
+    htelem->recovery_count = 0;
     htelem->tx_in_progress = false;
     
     // Initialize packet header
@@ -115,6 +117,13 @@ bool Telemetry_ReadyToSend(Telemetry_Handle_t *htelem)
     if (htelem->tx_in_progress) {
         if (SX1278_IsTxDone(htelem->radio)) {
             htelem->tx_in_progress = false;
+        } else if ((HAL_GetTick() - htelem->tx_start_time) >= TELEMETRY_TX_TIMEOUT_MS) {
+            /* A lost DIO0/TxDone must not permanently stop telemetry. */
+            HAL_SPI_Abort(htelem->radio->hspi);
+            SX1278_SetMode(htelem->radio, SX1278_MODE_STDBY);
+            SX1278_WriteRegister(htelem->radio, SX1278_REG_IRQ_FLAGS, 0xFF);
+            htelem->tx_in_progress = false;
+            htelem->recovery_count++;
         } else {
             return false;
         }
@@ -144,6 +153,7 @@ HAL_StatusTypeDef Telemetry_Send(Telemetry_Handle_t *htelem)
     if (status == HAL_OK) {
         htelem->tx_in_progress = true;
         htelem->last_tx_time = HAL_GetTick();
+        htelem->tx_start_time = htelem->last_tx_time;
         htelem->packet_count++;
     }
     
@@ -156,6 +166,12 @@ void Telemetry_Update(Telemetry_Handle_t *htelem)
     if (htelem->tx_in_progress) {
         if (SX1278_IsTxDone(htelem->radio)) {
             htelem->tx_in_progress = false;
+        } else if ((HAL_GetTick() - htelem->tx_start_time) >= TELEMETRY_TX_TIMEOUT_MS) {
+            HAL_SPI_Abort(htelem->radio->hspi);
+            SX1278_SetMode(htelem->radio, SX1278_MODE_STDBY);
+            SX1278_WriteRegister(htelem->radio, SX1278_REG_IRQ_FLAGS, 0xFF);
+            htelem->tx_in_progress = false;
+            htelem->recovery_count++;
         }
     }
 }

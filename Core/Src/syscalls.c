@@ -88,11 +88,17 @@ __attribute__((weak)) int _read(int file, char *ptr, int len)
 __attribute__((weak)) int _write(int file, char *ptr, int len)
 {
   (void)file;
-  int DataIdx;
-
-  for (DataIdx = 0; DataIdx < len; DataIdx++)
+  if (len <= 0)
   {
-    __io_putchar(*ptr++);
+    return 0;
+  }
+
+  /* Send each stdio buffer as one bounded operation. This avoids multiplying
+     the timeout by every character when the debug UART becomes unhealthy. */
+  if (HAL_UART_Transmit(&huart2, (uint8_t *)ptr, (uint16_t)len, 20U) != HAL_OK)
+  {
+    HAL_UART_AbortTransmit(&huart2);
+    __HAL_UART_CLEAR_OREFLAG(&huart2);
   }
   return len;
 }
@@ -259,8 +265,14 @@ __strong_reference(_getpid, getpid);
   */
 int __io_putchar(int ch)
 {
-  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+  /* Debug telemetry is best-effort: a loose USB/serial connection must never
+     block the flight task forever. Drop the byte and reset the UART state on
+     timeout/error; the next printf byte will retry normally. */
+  if (HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 5U) != HAL_OK)
+  {
+    HAL_UART_AbortTransmit(&huart2);
+    __HAL_UART_CLEAR_OREFLAG(&huart2);
+  }
   return ch;
 }
 /* USER CODE END 1 */
-
