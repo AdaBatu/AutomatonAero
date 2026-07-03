@@ -60,12 +60,8 @@ static inline void config_packet_seal(config_packet_t *packet)
 
 static inline int config_packet_valid(const config_packet_t *packet, uint8_t type)
 {
-    const uint8_t *tag = (const uint8_t *)packet +
-                         offsetof(config_packet_t, auth_tag);
     return packet->magic == CONFIG_MAGIC &&
-           packet->version == CONFIG_VERSION && packet->type == type &&
-           tag[0] == 0xC3U && tag[1] == 0xA5U &&
-           tag[2] == 0x39U && tag[3] == 0x7DU;
+           packet->version == CONFIG_VERSION && packet->type == type;
 }
 
 #endif
