@@ -34,7 +34,9 @@ void Telemetry_Init(Telemetry_Handle_t *htelem, SX1278_Handle_t *radio)
     htelem->last_config_nonce = 0;
     htelem->last_config_parameter = 0;
     htelem->last_config_value_milli = 0;
-    htelem->last_config_status = CONFIG_STATUS_BAD_PACKET;
+    htelem->last_config_status = 0xFFU;
+    htelem->config_rx_count = 0U;
+    htelem->config_invalid_count = 0U;
     htelem->tx_in_progress = false;
     htelem->rx_active = false;
     
@@ -121,8 +123,12 @@ void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *stat
     // Control outputs
     pkt->servo_roll = servo_roll;
     pkt->servo_pitch = servo_pitch;
-    pkt->servo_yaw = servo_yaw;
-    pkt->esc_throttle = esc_throttle;
+    /* This airframe has neither yaw servo nor throttle output. Reuse those
+       bytes for uplink diagnostics without changing the 40-byte packet. */
+    (void)servo_yaw;
+    (void)esc_throttle;
+    pkt->servo_yaw = htelem->config_rx_count;
+    pkt->esc_throttle = htelem->last_config_status;
     
     // Calculate checksum
     pkt->checksum = Telemetry_CalculateChecksum(pkt);
@@ -252,8 +258,11 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
     int16_t len = SX1278_ReadPacket(htelem->radio, (uint8_t *)&command,
                                     sizeof(command));
     if (len <= 0) return;
+    htelem->config_rx_count++;
     if (len != (int16_t)sizeof(command) ||
         !config_packet_valid(&command, CONFIG_TYPE_SET)) {
+        htelem->config_invalid_count++;
+        htelem->last_config_status = CONFIG_STATUS_BAD_PACKET;
         printf("LoRa config rejected: len=%d\r\n", (int)len);
         return;
     }

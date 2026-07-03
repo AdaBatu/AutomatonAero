@@ -32,6 +32,8 @@ typedef struct {
     int32_t last_config_value_milli;
     uint8_t last_config_parameter;
     uint8_t last_config_status;
+    uint8_t config_rx_count;
+    uint8_t config_invalid_count;
     bool tx_in_progress;
     bool rx_active;
 } Telemetry_Handle_t;
