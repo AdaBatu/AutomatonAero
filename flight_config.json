@@ -73,7 +73,7 @@
   "voltage_sensing": {
     "enabled": false,
     "input_pin": null,
-    "battery_voltage_v": 22.2,
+    "battery_voltage_v": 14.8,
     "note": "Fixed configured battery voltage used for estimated watts; PC1 physical voltage acquisition remains removed. Set this to your actual nominal voltage before building."
   },
   "gps": {
