@@ -147,5 +147,7 @@ void SX1278_HandleDIO0(SX1278_Handle_t *hdev);
 HAL_StatusTypeDef SX1278_SetMode(SX1278_Handle_t *hdev, uint8_t mode);
 uint8_t SX1278_ReadRegister(SX1278_Handle_t *hdev, uint8_t reg);
 void SX1278_WriteRegister(SX1278_Handle_t *hdev, uint8_t reg, uint8_t value);
+bool SX1278_FIFO_SelfTest(SX1278_Handle_t *hdev,
+                          uint8_t *read_byte0, uint8_t *read_byte1);
 
 #endif /* SX1278_H */

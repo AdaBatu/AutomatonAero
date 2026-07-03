@@ -61,6 +61,30 @@ static void SX1278_ReadFIFO(SX1278_Handle_t *hdev, uint8_t *data, uint8_t len)
     }
 }
 
+bool SX1278_FIFO_SelfTest(SX1278_Handle_t *hdev,
+                          uint8_t *read_byte0, uint8_t *read_byte1)
+{
+    static uint8_t pattern[8] = {
+        0xA5U, 0x5AU, 0x01U, 0x10U, 0xC3U, 0x3CU, 0x69U, 0x96U
+    };
+    uint8_t received[sizeof(pattern)] = {0};
+    const uint8_t test_address = 0x80U;
+
+    SX1278_SetMode(hdev, SX1278_MODE_STDBY);
+    SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR, test_address);
+    SX1278_WriteFIFO(hdev, pattern, sizeof(pattern));
+    SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR, test_address);
+    SX1278_ReadFIFO(hdev, received, sizeof(received));
+    SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR, 0x00U);
+
+    if (read_byte0 != NULL) *read_byte0 = received[0];
+    if (read_byte1 != NULL) *read_byte1 = received[1];
+    for (size_t i = 0; i < sizeof(pattern); ++i) {
+        if (received[i] != pattern[i]) return false;
+    }
+    return true;
+}
+
 /* Set operating mode */
 HAL_StatusTypeDef SX1278_SetMode(SX1278_Handle_t *hdev, uint8_t mode)
 {

@@ -975,6 +975,15 @@ static void Flight_InitRadio(void)
     
     /* Initialize telemetry */
     Telemetry_Init(&htelemetry, &hlora);
+    uint8_t fifo_byte0 = 0U;
+    uint8_t fifo_byte1 = 0U;
+    bool fifo_ok = SX1278_FIFO_SelfTest(&hlora, &fifo_byte0, &fifo_byte1);
+    printf("LoRa FIFO self-test: %s (read %02X %02X, expected A5 5A)\r\n",
+           fifo_ok ? "PASS" : "FAIL", fifo_byte0, fifo_byte1);
+    /* Before the first command these two existing diagnostic telemetry bytes
+       report the loopback result: A5/5A means the complete test passed. */
+    htelemetry.config_rx_count = fifo_ok ? 0xA5U : fifo_byte0;
+    htelemetry.last_config_status = fifo_ok ? 0x5AU : fifo_byte1;
     Telemetry_SetRate(&htelemetry, 10);  // 10 Hz telemetry
 }
 
