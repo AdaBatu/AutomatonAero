@@ -3,6 +3,7 @@
  * @brief PID controller implementation
  */
 #include "pid.h"
+#include "flight_config_generated.h"
 
 /* Initialize PID controller */
 void PID_Init(PID_Controller_t *pid, float Kp, float Ki, float Kd)
@@ -90,15 +91,6 @@ void PID_SetTuning(PID_Controller_t *pid, float Kp, float Ki, float Kd)
  * FLIGHT PID CONTROLLER (3-axis)
  * ============================================================================ */
 
-/* Default PID gains - these should be tuned for specific aircraft */
-#define DEFAULT_ROLL_KP     1.5f
-#define DEFAULT_ROLL_KI     0.1f
-#define DEFAULT_ROLL_KD     0.05f
-
-#define DEFAULT_PITCH_KP    1.5f
-#define DEFAULT_PITCH_KI    0.1f
-#define DEFAULT_PITCH_KD    0.05f
-
 #define DEFAULT_YAW_KP      2.0f
 #define DEFAULT_YAW_KI      0.05f
 #define DEFAULT_YAW_KD      0.1f
@@ -106,8 +98,8 @@ void PID_SetTuning(PID_Controller_t *pid, float Kp, float Ki, float Kd)
 /* Initialize flight PID controller */
 void FlightPID_Init(FlightPID_t *fpid)
 {
-    PID_Init(&fpid->roll, DEFAULT_ROLL_KP, DEFAULT_ROLL_KI, DEFAULT_ROLL_KD);
-    PID_Init(&fpid->pitch, DEFAULT_PITCH_KP, DEFAULT_PITCH_KI, DEFAULT_PITCH_KD);
+    PID_Init(&fpid->roll, CONFIG_ROLL_KP, CONFIG_ROLL_KI, CONFIG_ROLL_KD);
+    PID_Init(&fpid->pitch, CONFIG_PITCH_KP, CONFIG_PITCH_KI, CONFIG_PITCH_KD);
     PID_Init(&fpid->yaw, DEFAULT_YAW_KP, DEFAULT_YAW_KI, DEFAULT_YAW_KD);
     
     // Set output limits (normalized -1 to 1)

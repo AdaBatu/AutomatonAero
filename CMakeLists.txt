@@ -38,6 +38,12 @@ string(JSON FLIGHT_SYSTEM_ARMED GET
     "${FLIGHT_CONFIG_JSON}" airframe system_armed)
 string(JSON FLIGHT_MAX_RC_ATTITUDE_DEGREES GET
     "${FLIGHT_CONFIG_JSON}" airframe max_rc_attitude_degrees)
+string(JSON FLIGHT_ROLL_KP GET "${FLIGHT_CONFIG_JSON}" pid roll kp)
+string(JSON FLIGHT_ROLL_KI GET "${FLIGHT_CONFIG_JSON}" pid roll ki)
+string(JSON FLIGHT_ROLL_KD GET "${FLIGHT_CONFIG_JSON}" pid roll kd)
+string(JSON FLIGHT_PITCH_KP GET "${FLIGHT_CONFIG_JSON}" pid pitch kp)
+string(JSON FLIGHT_PITCH_KI GET "${FLIGHT_CONFIG_JSON}" pid pitch ki)
+string(JSON FLIGHT_PITCH_KD GET "${FLIGHT_CONFIG_JSON}" pid pitch kd)
 if(FLIGHT_SYSTEM_ARMED)
     set(FLIGHT_SYSTEM_ARMED_VALUE 1)
 else()
