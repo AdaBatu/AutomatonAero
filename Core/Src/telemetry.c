@@ -3,6 +3,8 @@
  * @brief Telemetry data packaging and LoRa transmission
  */
 #include "telemetry.h"
+#include "config_protocol.h"
+#include "pid.h"
 #include <string.h>
 #include <math.h>
 
@@ -13,6 +15,8 @@
 /* Radians to degrees conversion */
 #define RAD_TO_DEG(x) ((x) * 180.0f / M_PI)
 
+extern FlightPID_t flight_pid;
+
 /* Initialize telemetry manager */
 void Telemetry_Init(Telemetry_Handle_t *htelem, SX1278_Handle_t *radio)
 {
@@ -22,7 +26,12 @@ void Telemetry_Init(Telemetry_Handle_t *htelem, SX1278_Handle_t *radio)
     htelem->tx_interval_ms = 1000 / TELEMETRY_RATE_HZ;  // 100ms for 10Hz
     htelem->packet_count = 0;
     htelem->recovery_count = 0;
+    htelem->last_config_nonce = 0;
+    htelem->last_config_parameter = 0;
+    htelem->last_config_value_milli = 0;
+    htelem->last_config_status = CONFIG_STATUS_BAD_PACKET;
     htelem->tx_in_progress = false;
+    htelem->rx_active = false;
     
     // Initialize packet header
     htelem->packet.header[0] = TELEMETRY_HEADER_1;
@@ -156,12 +165,102 @@ HAL_StatusTypeDef Telemetry_Send(Telemetry_Handle_t *htelem)
     
     if (status == HAL_OK) {
         htelem->tx_in_progress = true;
+        htelem->rx_active = false;
         htelem->last_tx_time = HAL_GetTick();
         htelem->tx_start_time = htelem->last_tx_time;
         htelem->packet_count++;
     }
     
     return status;
+}
+
+static uint8_t Telemetry_ApplyConfig(Telemetry_Handle_t *htelem,
+                                     uint8_t parameter, int32_t value_milli)
+{
+    float value = (float)value_milli / 1000.0f;
+
+    if (parameter == CONFIG_PARAM_TELEMETRY_RATE) {
+        if (value_milli < 1000 || value_milli > 20000 ||
+            (value_milli % 1000) != 0) {
+            return CONFIG_STATUS_RANGE;
+        }
+        Telemetry_SetRate(htelem, (uint8_t)(value_milli / 1000));
+        return CONFIG_STATUS_OK;
+    }
+
+    switch (parameter) {
+    case CONFIG_PARAM_ROLL_KP:
+    case CONFIG_PARAM_PITCH_KP:
+        if (value < 0.0f || value > 10.0f) return CONFIG_STATUS_RANGE;
+        break;
+    case CONFIG_PARAM_ROLL_KI:
+    case CONFIG_PARAM_PITCH_KI:
+    case CONFIG_PARAM_ROLL_KD:
+    case CONFIG_PARAM_PITCH_KD:
+        if (value < 0.0f || value > 2.0f) return CONFIG_STATUS_RANGE;
+        break;
+    default:
+        return CONFIG_STATUS_UNKNOWN_PARAM;
+    }
+
+    switch (parameter) {
+    case CONFIG_PARAM_ROLL_KP:  flight_pid.roll.Kp = value; break;
+    case CONFIG_PARAM_ROLL_KI:  flight_pid.roll.Ki = value; break;
+    case CONFIG_PARAM_ROLL_KD:  flight_pid.roll.Kd = value; break;
+    case CONFIG_PARAM_PITCH_KP: flight_pid.pitch.Kp = value; break;
+    case CONFIG_PARAM_PITCH_KI: flight_pid.pitch.Ki = value; break;
+    case CONFIG_PARAM_PITCH_KD: flight_pid.pitch.Kd = value; break;
+    default: return CONFIG_STATUS_UNKNOWN_PARAM;
+    }
+    return CONFIG_STATUS_OK;
+}
+
+void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
+{
+    if (htelem->tx_in_progress) return;
+
+    if (!htelem->rx_active) {
+        if (SX1278_StartReceive(htelem->radio) != HAL_OK) return;
+        htelem->rx_active = true;
+    }
+
+    config_packet_t command;
+    int16_t len = SX1278_ReadPacket(htelem->radio, (uint8_t *)&command,
+                                    sizeof(command));
+    if (len <= 0) return;
+    if (len != (int16_t)sizeof(command) ||
+        !config_packet_valid(&command, CONFIG_TYPE_SET)) {
+        return;
+    }
+
+    uint8_t status;
+    if (command.nonce == htelem->last_config_nonce &&
+        command.parameter == htelem->last_config_parameter) {
+        status = htelem->last_config_status;
+    } else {
+        status = Telemetry_ApplyConfig(htelem, command.parameter,
+                                       command.value_milli);
+        htelem->last_config_nonce = command.nonce;
+        htelem->last_config_parameter = command.parameter;
+        htelem->last_config_value_milli = command.value_milli;
+        htelem->last_config_status = status;
+    }
+
+    config_packet_t ack = {
+        .magic = CONFIG_MAGIC,
+        .version = CONFIG_VERSION,
+        .type = CONFIG_TYPE_ACK,
+        .nonce = command.nonce,
+        .parameter = command.parameter,
+        .status = status,
+        .value_milli = command.value_milli,
+        .auth_tag = 0
+    };
+    ack.auth_tag = config_auth_tag(&ack);
+    htelem->rx_active = false;
+    (void)SX1278_Transmit(htelem->radio, (uint8_t *)&ack, sizeof(ack));
+    (void)SX1278_StartReceive(htelem->radio);
+    htelem->rx_active = true;
 }
 
 /* Update transmission state (call in main loop) */

@@ -140,6 +140,8 @@ HAL_StatusTypeDef SX1278_Init(SX1278_Handle_t *hdev, SPI_HandleTypeDef *hspi,
 HAL_StatusTypeDef SX1278_Configure(SX1278_Handle_t *hdev, SX1278_Config_t *config);
 HAL_StatusTypeDef SX1278_Transmit(SX1278_Handle_t *hdev, uint8_t *data, uint8_t len);
 HAL_StatusTypeDef SX1278_TransmitAsync(SX1278_Handle_t *hdev, uint8_t *data, uint8_t len);
+HAL_StatusTypeDef SX1278_StartReceive(SX1278_Handle_t *hdev);
+int16_t SX1278_ReadPacket(SX1278_Handle_t *hdev, uint8_t *data, uint8_t max_len);
 bool SX1278_IsTxDone(SX1278_Handle_t *hdev);
 void SX1278_HandleDIO0(SX1278_Handle_t *hdev);
 HAL_StatusTypeDef SX1278_SetMode(SX1278_Handle_t *hdev, uint8_t mode);

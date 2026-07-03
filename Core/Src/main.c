@@ -487,7 +487,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -922,6 +922,12 @@ static void Flight_InitRadio(void)
     GPIO_InitStruct.Pin = LORA_RST_PIN;
     HAL_GPIO_Init(LORA_RST_PORT, &GPIO_InitStruct);
     HAL_GPIO_WritePin(LORA_RST_PORT, LORA_RST_PIN, GPIO_PIN_SET);
+
+    /* DIO0 is driven by the SX1278 (RxDone/TxDone), never by the STM32. */
+    GPIO_InitStruct.Pin = LORA_DIO0_PIN;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(LORA_DIO0_PORT, &GPIO_InitStruct);
     
     /* Initialize SX1278 */
     HAL_StatusTypeDef lora_status = SX1278_Init(&hlora, &hspi1, 
@@ -1168,6 +1174,9 @@ void StarttelemetryTask(void *argument)
   /* Telemetry pipeline: send latest flight state over LoRa */
   for(;;)
   {
+    Telemetry_Update(&htelemetry);
+    Telemetry_PollConfig(&htelemetry);
+
     /* Send telemetry if ready */
     if (Telemetry_ReadyToSend(&htelemetry)) {
       float roll_out, pitch_out, yaw_out;
@@ -1180,8 +1189,6 @@ void StarttelemetryTask(void *argument)
                             telem_roll, telem_pitch, telem_yaw, telem_throttle);
       Telemetry_Send(&htelemetry);
     }
-    Telemetry_Update(&htelemetry);
-
     /* Debug UART is intentionally kept out of the time-critical flight task. */
     #if SERIAL_TELEMETRY_ENABLED
     if (SerialTelemetry_ReadyToPrint(&hserial_telem)) {

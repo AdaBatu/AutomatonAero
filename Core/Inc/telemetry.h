@@ -26,7 +26,12 @@ typedef struct {
     uint32_t tx_interval_ms;
     uint32_t packet_count;
     uint32_t recovery_count;
+    uint32_t last_config_nonce;
+    int32_t last_config_value_milli;
+    uint8_t last_config_parameter;
+    uint8_t last_config_status;
     bool tx_in_progress;
+    bool rx_active;
 } Telemetry_Handle_t;
 
 /* Function prototypes */
@@ -46,6 +51,7 @@ bool Telemetry_ReadyToSend(Telemetry_Handle_t *htelem);
 
 /* Update transmission state (call in main loop) */
 void Telemetry_Update(Telemetry_Handle_t *htelem);
+void Telemetry_PollConfig(Telemetry_Handle_t *htelem);
 
 /* Calculate checksum */
 uint8_t Telemetry_CalculateChecksum(const Telemetry_Packet_t *packet);

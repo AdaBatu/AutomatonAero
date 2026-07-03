@@ -96,6 +96,20 @@
     "telemetry_rate_hz": 10,
     "transmit_timeout_ms": 1000
   },
+  "remote_configuration": {
+    "enabled": true,
+    "persistent": false,
+    "note": "Authenticated runtime updates over LoRa. Reboot restores compiled defaults. PID gains may be changed while armed; arming and actuator commands are not supported.",
+    "parameters": {
+      "roll_kp": { "minimum": 0.0, "maximum": 10.0, "requires_disarmed": false },
+      "roll_ki": { "minimum": 0.0, "maximum": 2.0, "requires_disarmed": false },
+      "roll_kd": { "minimum": 0.0, "maximum": 2.0, "requires_disarmed": false },
+      "pitch_kp": { "minimum": 0.0, "maximum": 10.0, "requires_disarmed": false },
+      "pitch_ki": { "minimum": 0.0, "maximum": 2.0, "requires_disarmed": false },
+      "pitch_kd": { "minimum": 0.0, "maximum": 2.0, "requires_disarmed": false },
+      "telemetry_rate_hz": { "minimum": 1, "maximum": 20, "requires_disarmed": false }
+    }
+  },
   "serial_telemetry": {
     "enabled": true,
     "requested_rate_hz": 1,

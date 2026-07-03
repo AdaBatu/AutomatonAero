@@ -51,6 +51,15 @@ static void SX1278_WriteFIFO(SX1278_Handle_t *hdev, uint8_t *data, uint8_t len)
     SX1278_NSS_High(hdev);
 }
 
+static void SX1278_ReadFIFO(SX1278_Handle_t *hdev, uint8_t *data, uint8_t len)
+{
+    uint8_t reg = SX1278_REG_FIFO & 0x7F;
+    SX1278_NSS_Low(hdev);
+    HAL_SPI_Transmit(hdev->hspi, &reg, 1, 20);
+    HAL_SPI_Receive(hdev->hspi, data, len, 20);
+    SX1278_NSS_High(hdev);
+}
+
 /* Set operating mode */
 HAL_StatusTypeDef SX1278_SetMode(SX1278_Handle_t *hdev, uint8_t mode)
 {
@@ -208,7 +217,7 @@ HAL_StatusTypeDef SX1278_Transmit(SX1278_Handle_t *hdev, uint8_t *data, uint8_t 
     // Wait for TxDone
     uint32_t start = HAL_GetTick();
     while (!(SX1278_ReadRegister(hdev, SX1278_REG_IRQ_FLAGS) & SX1278_IRQ_TX_DONE)) {
-        if (HAL_GetTick() - start > 5000) {  // 5 second timeout
+        if (HAL_GetTick() - start > 500) {
             SX1278_SetMode(hdev, SX1278_MODE_STDBY);
             return HAL_TIMEOUT;
         }
@@ -221,6 +230,37 @@ HAL_StatusTypeDef SX1278_Transmit(SX1278_Handle_t *hdev, uint8_t *data, uint8_t 
     SX1278_SetMode(hdev, SX1278_MODE_STDBY);
     
     return HAL_OK;
+}
+
+HAL_StatusTypeDef SX1278_StartReceive(SX1278_Handle_t *hdev)
+{
+    hdev->rx_done = false;
+    SX1278_SetMode(hdev, SX1278_MODE_STDBY);
+    SX1278_WriteRegister(hdev, SX1278_REG_DIO_MAPPING_1, 0x00);
+    SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR,
+                         SX1278_ReadRegister(hdev, SX1278_REG_FIFO_RX_BASE_ADDR));
+    SX1278_WriteRegister(hdev, SX1278_REG_IRQ_FLAGS, 0xFF);
+    return SX1278_SetMode(hdev, SX1278_MODE_RXCONTINUOUS);
+}
+
+int16_t SX1278_ReadPacket(SX1278_Handle_t *hdev, uint8_t *data, uint8_t max_len)
+{
+    uint8_t flags = SX1278_ReadRegister(hdev, SX1278_REG_IRQ_FLAGS);
+    if ((flags & SX1278_IRQ_RX_DONE) == 0U) {
+        return 0;
+    }
+    SX1278_WriteRegister(hdev, SX1278_REG_IRQ_FLAGS, flags);
+    if ((flags & SX1278_IRQ_PAYLOAD_CRC_ERROR) != 0U) {
+        return -1;
+    }
+    uint8_t len = SX1278_ReadRegister(hdev, SX1278_REG_RX_NB_BYTES);
+    uint8_t address = SX1278_ReadRegister(hdev, SX1278_REG_FIFO_RX_CURRENT_ADDR);
+    SX1278_WriteRegister(hdev, SX1278_REG_FIFO_ADDR_PTR, address);
+    if (len > max_len) {
+        return -2;
+    }
+    SX1278_ReadFIFO(hdev, data, len);
+    return (int16_t)len;
 }
 
 /* Transmit data (non-blocking) */
