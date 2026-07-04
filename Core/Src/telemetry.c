@@ -95,11 +95,54 @@ void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *stat
         pkt->longitude = (int32_t)(state->gps.longitude * 1e7f);
         pkt->gps_altitude = (int16_t)(state->gps.altitude);
         pkt->satellites = state->gps.satellites;
+        float speed_scaled = state->gps.speed * 100.0f;
+        if (speed_scaled < 0.0f) speed_scaled = 0.0f;
+        if (speed_scaled > 65535.0f) speed_scaled = 65535.0f;
+        pkt->ground_speed = (uint16_t)speed_scaled;
     } else {
         pkt->latitude = 0;
         pkt->longitude = 0;
         pkt->gps_altitude = 0;
         pkt->satellites = 0;
+        pkt->ground_speed = 0;
+    }
+
+    if (state->imu.valid) {
+        float ax = state->imu.accel.x * 100.0f;
+        float ay = state->imu.accel.y * 100.0f;
+        float az = state->imu.accel.z * 100.0f;
+        if (ax > 32767.0f) ax = 32767.0f; else if (ax < -32768.0f) ax = -32768.0f;
+        if (ay > 32767.0f) ay = 32767.0f; else if (ay < -32768.0f) ay = -32768.0f;
+        if (az > 32767.0f) az = 32767.0f; else if (az < -32768.0f) az = -32768.0f;
+        pkt->accel_x = (int16_t)ax;
+        pkt->accel_y = (int16_t)ay;
+        pkt->accel_z = (int16_t)az;
+    } else {
+        pkt->accel_x = 0;
+        pkt->accel_y = 0;
+        pkt->accel_z = 0;
+    }
+
+    if (state->navigation.valid) {
+        pkt->fused_latitude = (int32_t)(state->navigation.latitude * 1e7);
+        pkt->fused_longitude = (int32_t)(state->navigation.longitude * 1e7);
+        float vn = state->navigation.velocity_north * 100.0f;
+        float ve = state->navigation.velocity_east * 100.0f;
+        float fs = state->navigation.speed * 100.0f;
+        if (vn > 32767.0f) vn = 32767.0f; else if (vn < -32768.0f) vn = -32768.0f;
+        if (ve > 32767.0f) ve = 32767.0f; else if (ve < -32768.0f) ve = -32768.0f;
+        if (fs > 65535.0f) fs = 65535.0f;
+        pkt->velocity_north = (int16_t)vn;
+        pkt->velocity_east = (int16_t)ve;
+        pkt->fused_speed = (uint16_t)fs;
+        pkt->navigation_valid = 1U;
+    } else {
+        pkt->fused_latitude = 0;
+        pkt->fused_longitude = 0;
+        pkt->velocity_north = 0;
+        pkt->velocity_east = 0;
+        pkt->fused_speed = 0;
+        pkt->navigation_valid = 0U;
     }
     
     // Barometer altitude

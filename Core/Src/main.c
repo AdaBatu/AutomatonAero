@@ -28,6 +28,7 @@
 #include "gps_nmea.h"
 #include "sx1278.h"
 #include "kalman.h"
+#include "nav_fusion.h"
 #include "pid.h"
 #include "servo_esc.h"
 #include "adc_sensors.h"
@@ -104,6 +105,7 @@ PowerSensor_Handle_t hpower;
 
 /* Control system */
 KalmanFilter_t kalman;
+NavFusion_t nav_fusion;
 FlightPID_t flight_pid;
 
 /* Initial orientation at power-on (for attitude hold baseline) */
@@ -228,6 +230,7 @@ int main(void)
   /* Initialize Kalman filter and PID controllers */
   Kalman_Init(&kalman);
   Kalman_SetTuning(&kalman, 0.001f, 0.003f, 0.03f);  // Q_angle, Q_bias, R_measure
+  NavFusion_Init(&nav_fusion);
   
   FlightPID_Init(&flight_pid);
   
@@ -1072,7 +1075,12 @@ static void Flight_ControlLoop(void)
         flight_state.orientation.roll = Flight_WrapAngle(raw_orientation.roll - attitude_zero_roll);
         flight_state.orientation.pitch = Flight_WrapAngle(raw_orientation.pitch - attitude_zero_pitch);
         flight_state.orientation.yaw = Flight_WrapAngle(raw_orientation.yaw - attitude_zero_yaw);
+        NavFusion_Predict(&nav_fusion, &flight_state.imu.accel,
+                          &flight_state.orientation, dt);
     }
+
+    NavFusion_CorrectGPS(&nav_fusion, &flight_state.gps, hgps.last_valid_fix);
+    NavFusion_GetData(&nav_fusion, &flight_state.navigation);
     
     /* ========== UPDATE PID SETPOINTS FROM RC ========== */
     /* Target = calibrated zero attitude + configured RC stick offset. */

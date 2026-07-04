@@ -84,6 +84,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/gps_nmea.c
     Core/Src/sx1278.c
     Core/Src/kalman.c
+    Core/Src/nav_fusion.c
     Core/Src/pid.c
     Core/Src/servo_esc.c
     Core/Src/adc_sensors.c

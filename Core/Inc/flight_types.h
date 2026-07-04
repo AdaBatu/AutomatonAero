@@ -56,6 +56,15 @@ typedef struct {
     bool valid;
 } Power_Data_t;
 
+typedef struct {
+    double latitude;
+    double longitude;
+    float velocity_north;
+    float velocity_east;
+    float speed;
+    bool valid;
+} Nav_Data_t;
+
 /* ============================================================================
  * ORIENTATION & CONTROL STRUCTURES
  * ============================================================================ */
@@ -117,6 +126,20 @@ typedef struct {
     uint8_t servo_pitch;   // 0-255
     uint8_t servo_yaw;     // 0-255
     uint8_t esc_throttle;  // 0-255
+
+    // Motion
+    uint16_t ground_speed; // m/s * 100
+    int16_t accel_x;       // m/s^2 * 100
+    int16_t accel_y;       // m/s^2 * 100
+    int16_t accel_z;       // m/s^2 * 100
+
+    // GPS/IMU fused navigation
+    int32_t fused_latitude;   // deg * 1e7
+    int32_t fused_longitude;  // deg * 1e7
+    int16_t velocity_north;   // m/s * 100
+    int16_t velocity_east;    // m/s * 100
+    uint16_t fused_speed;     // m/s * 100
+    uint8_t navigation_valid;
     
     uint8_t checksum;
 } Telemetry_Packet_t;
@@ -131,6 +154,7 @@ typedef struct {
     Baro_Data_t baro;
     GPS_Data_t gps;
     Power_Data_t power;
+    Nav_Data_t navigation;
     Orientation_t orientation;
     SetPoint_t setpoint;
     uint32_t loop_count;
