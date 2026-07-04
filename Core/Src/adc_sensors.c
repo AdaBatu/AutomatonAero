@@ -4,6 +4,7 @@
  */
 #include "adc_sensors.h"
 #include "flight_config_generated.h"
+#include <stdio.h>
 
 void PowerSensor_Init(PowerSensor_Handle_t *hpow, ADC_HandleTypeDef *hadc)
 {
@@ -47,10 +48,11 @@ float ADC_ToVoltage(uint32_t adc_value)
 
 HAL_StatusTypeDef PowerSensor_Read(PowerSensor_Handle_t *hpow, Power_Data_t *data)
 {
-    /* ACS758 OUT1 on A5 / PC0 / ADC1_IN1. */
+    /* CJMCU-758 OUT2 on A5 / PC0 / ADC1_IN1. */
     uint32_t current_raw = ADC_ReadChannel(hpow->hadc, ADC_CHANNEL_CURRENT);
     float current_adc = ADC_ToVoltage(current_raw);
-    float current = (current_adc - hpow->current_offset) / CURRENT_SENSITIVITY;
+    float current = CURRENT_POLARITY *
+                    (current_adc - hpow->current_offset) / CURRENT_SENSITIVITY;
 
     hpow->current_filtered = hpow->filter_alpha * current +
                              (1.0f - hpow->filter_alpha) * hpow->current_filtered;
@@ -68,6 +70,7 @@ HAL_StatusTypeDef PowerSensor_Read(PowerSensor_Handle_t *hpow, Power_Data_t *dat
 
     data->voltage = CONFIG_BATTERY_VOLTAGE_V;
     data->current = hpow->current_filtered;
+    data->current_sensor_voltage = current_adc;
     data->power = power_w;
     data->ampere_hours = hpow->ampere_hours;
     data->valid = true;
@@ -83,6 +86,8 @@ void PowerSensor_CalibrateZeroCurrent(PowerSensor_Handle_t *hpow)
         HAL_Delay(2);
     }
     hpow->current_offset = ADC_ToVoltage((uint32_t)(sum / samples));
+    printf("Current sensor zero: %.4f V on PC0 (ADC1_IN1)\r\n",
+           hpow->current_offset);
     hpow->current_filtered = 0.0f;
     hpow->last_sample_ms = HAL_GetTick();
 }

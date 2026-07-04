@@ -51,6 +51,7 @@ typedef struct {
 typedef struct {
     float voltage;         // Volts
     float current;         // Amps
+    float current_sensor_voltage; // Raw PC0/OUT2 voltage
     float power;           // Watts
     float ampere_hours;    // Consumed Ah since startup
     bool valid;
@@ -140,6 +141,7 @@ typedef struct {
     int16_t velocity_east;    // m/s * 100
     uint16_t fused_speed;     // m/s * 100
     uint8_t navigation_valid;
+    uint16_t current_sensor_mv; // Raw OUT2/PC0 voltage
     
     uint8_t checksum;
 } Telemetry_Packet_t;

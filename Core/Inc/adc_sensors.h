@@ -8,13 +8,14 @@
 #include "stm32l4xx_hal.h"
 #include "flight_types.h"
 
-/* ACS758 OUT1 is connected to A5 / PC0 / ADC1_IN1. */
+/* CJMCU-758 OUT2 is connected to A5 / PC0 / ADC1_IN1. */
 #define ADC_CHANNEL_CURRENT     ADC_CHANNEL_1
 
-/* ACS758LCB-100B powered from 3.3 V, direct OUT1, no divider. */
+/* ACS758LCB-100B powered from 3.3 V, direct OUT2, no divider. */
 #define CURRENT_SENSOR_SUPPLY_V 3.3f
 #define CURRENT_SENSITIVITY     0.0132f // 20 mV/A * 3.3 V / 5.0 V
 #define CURRENT_OFFSET_V        1.65f
+#define CURRENT_POLARITY        (-1.0f) /* OUT2 falls as aircraft current rises. */
 
 /* ADC reference */
 #define ADC_VREF                3.3f
