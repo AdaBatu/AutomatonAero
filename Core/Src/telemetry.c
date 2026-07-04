@@ -168,18 +168,17 @@ void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *stat
     // Control outputs
     pkt->servo_roll = servo_roll;
     pkt->servo_pitch = servo_pitch;
-    /* This airframe has neither yaw servo nor throttle output. Reuse those
-       bytes for uplink diagnostics without changing the 40-byte packet. */
+    /* This airframe has neither yaw servo nor throttle output. Advertise the
+       next command RX slot in 10 ms units so the ground radio can schedule
+       uplinks deterministically despite changing telemetry packet airtime. */
     (void)servo_yaw;
     (void)esc_throttle;
-    if (htelem->last_config_status == 0x40U) {
-        /* On bad magic expose the actual first bytes for remote diagnosis. */
-        pkt->servo_yaw = htelem->config_debug_byte0;
-        pkt->esc_throttle = htelem->config_debug_byte1;
-    } else {
-        pkt->servo_yaw = htelem->config_rx_count;
-        pkt->esc_throttle = htelem->last_config_status;
-    }
+    uint32_t elapsed = HAL_GetTick() - htelem->last_config_window;
+    uint32_t remaining = elapsed >= CONFIG_LORA_RX_WINDOW_INTERVAL_MS
+                         ? 0U : CONFIG_LORA_RX_WINDOW_INTERVAL_MS - elapsed;
+    pkt->servo_yaw = (uint8_t)((remaining / 10U) > 255U
+                               ? 255U : (remaining / 10U));
+    pkt->esc_throttle = htelem->last_config_status;
     
     // Calculate checksum
     pkt->checksum = Telemetry_CalculateChecksum(pkt);
