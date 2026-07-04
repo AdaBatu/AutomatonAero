@@ -298,6 +298,9 @@ void Telemetry_PollConfig(Telemetry_Handle_t *htelem)
     if ((now - htelem->last_config_window) >= CONFIG_LORA_RX_WINDOW_INTERVAL_MS) {
         htelem->last_config_window = now;
         htelem->config_window_until = now + CONFIG_LORA_RX_WINDOW_DURATION_MS;
+        /* RX_SINGLE automatically returns to standby after a packet or
+           timeout. Re-arm it explicitly at the start of every command slot. */
+        htelem->rx_active = false;
     }
 
     if (!htelem->rx_active) {
