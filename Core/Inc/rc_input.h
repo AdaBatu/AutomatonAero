@@ -26,6 +26,8 @@
 #define RC_MID_PULSE_US     1500
 #define RC_MAX_PULSE_US     2000
 #define RC_PULSE_DEADBAND   50    // Ignore small changes around center
+#define RC_FILTER_ALPHA     0.30f // New-sample low-pass weight
+#define RC_QUANTUM_US       5U    // Discrete pulse step with hysteresis
 
 /* RC signal validity timeout (ms) */
 #define RC_SIGNAL_TIMEOUT   500
@@ -42,8 +44,11 @@ typedef struct {
 
 /* RC handle */
 typedef struct {
-    uint16_t pulse_us[RC_NUM_CHANNELS];   // Raw pulse widths
+    volatile uint16_t pulse_us[RC_NUM_CHANNELS]; // Raw ISR pulse widths
     uint32_t last_pulse_time[RC_NUM_CHANNELS];
+    uint32_t filtered_sample_time[RC_NUM_CHANNELS];
+    float filtered_pulse_us[RC_NUM_CHANNELS];
+    uint16_t stable_pulse_us[RC_NUM_CHANNELS];
     volatile uint32_t rise_time[RC_NUM_CHANNELS];
     volatile bool measuring[RC_NUM_CHANNELS];
     RC_Input_t data;

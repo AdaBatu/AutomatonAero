@@ -34,6 +34,9 @@
     "center_pulse_us": 1500,
     "maximum_pulse_us": 2000,
     "center_deadband_us": 50,
+    "input_filter_alpha": 0.50,
+    "input_quantization_us": 30,
+    "input_quantization_hysteresis": true,
     "signal_timeout_ms": 500,
     "roll_pin": "PB2",
     "pitch_pin": "PB15"

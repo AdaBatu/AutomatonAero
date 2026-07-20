@@ -42,8 +42,12 @@ void RC_Init(RC_Handle_t *hrc)
     /* Set default pulse widths to center */
     for (int i = 0; i < RC_NUM_CHANNELS; i++) {
         hrc->pulse_us[i] = RC_MID_PULSE_US;
+        hrc->filtered_pulse_us[i] = RC_MID_PULSE_US;
+        hrc->stable_pulse_us[i] = RC_MID_PULSE_US;
     }
     hrc->pulse_us[RC_CH_THROTTLE] = RC_MIN_PULSE_US;  // Throttle starts at minimum
+    hrc->filtered_pulse_us[RC_CH_THROTTLE] = RC_MIN_PULSE_US;
+    hrc->stable_pulse_us[RC_CH_THROTTLE] = RC_MIN_PULSE_US;
     
     /* Initialize RC data */
     hrc->data.throttle = 0.0f;
@@ -78,6 +82,30 @@ void RC_Init(RC_Handle_t *hrc)
     
     HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+}
+
+static uint16_t RC_FilterPulse(RC_Handle_t *hrc, uint8_t channel)
+{
+    /* Update once per newly captured receiver pulse, not on every 100 Hz
+       control iteration. Then move only in discrete RC_QUANTUM_US steps. */
+    uint32_t sample_time = hrc->last_pulse_time[channel];
+    if (sample_time != hrc->filtered_sample_time[channel]) {
+        hrc->filtered_sample_time[channel] = sample_time;
+        float raw = (float)hrc->pulse_us[channel];
+        hrc->filtered_pulse_us[channel] += RC_FILTER_ALPHA *
+            (raw - hrc->filtered_pulse_us[channel]);
+
+        float difference = hrc->filtered_pulse_us[channel] -
+                           (float)hrc->stable_pulse_us[channel];
+        if (difference >= (float)RC_QUANTUM_US) {
+            uint16_t steps = (uint16_t)(difference / (float)RC_QUANTUM_US);
+            hrc->stable_pulse_us[channel] += steps * RC_QUANTUM_US;
+        } else if (difference <= -(float)RC_QUANTUM_US) {
+            uint16_t steps = (uint16_t)((-difference) / (float)RC_QUANTUM_US);
+            hrc->stable_pulse_us[channel] -= steps * RC_QUANTUM_US;
+        }
+    }
+    return hrc->stable_pulse_us[channel];
 }
 
 /* GPIO EXTI callback handler */
@@ -125,28 +153,28 @@ void RC_Update(RC_Handle_t *hrc)
     /* Convert raw pulse widths to normalized values */
     
     /* Throttle: 0.0 to 1.0 */
-    uint16_t throttle_us = hrc->pulse_us[RC_CH_THROTTLE];
+    uint16_t throttle_us = RC_FilterPulse(hrc, RC_CH_THROTTLE);
     if (throttle_us < RC_MIN_PULSE_US) throttle_us = RC_MIN_PULSE_US;
     if (throttle_us > RC_MAX_PULSE_US) throttle_us = RC_MAX_PULSE_US;
     hrc->data.throttle = (float)(throttle_us - RC_MIN_PULSE_US) / 
                          (float)(RC_MAX_PULSE_US - RC_MIN_PULSE_US);
     
     /* Roll: -1.0 to 1.0 (will be converted to angle for PID) */
-    uint16_t roll_us = hrc->pulse_us[RC_CH_ROLL];
+    uint16_t roll_us = RC_FilterPulse(hrc, RC_CH_ROLL);
     if (roll_us < RC_MIN_PULSE_US) roll_us = RC_MIN_PULSE_US;
     if (roll_us > RC_MAX_PULSE_US) roll_us = RC_MAX_PULSE_US;
     hrc->data.roll = (float)(roll_us - RC_MID_PULSE_US) / 
                      (float)(RC_MAX_PULSE_US - RC_MID_PULSE_US);
     
     /* Pitch: -1.0 to 1.0 (will be converted to angle for PID) */
-    uint16_t pitch_us = hrc->pulse_us[RC_CH_PITCH];
+    uint16_t pitch_us = RC_FilterPulse(hrc, RC_CH_PITCH);
     if (pitch_us < RC_MIN_PULSE_US) pitch_us = RC_MIN_PULSE_US;
     if (pitch_us > RC_MAX_PULSE_US) pitch_us = RC_MAX_PULSE_US;
     hrc->data.pitch = (float)(pitch_us - RC_MID_PULSE_US) / 
                       (float)(RC_MAX_PULSE_US - RC_MID_PULSE_US);
     
     /* Yaw: -1.0 to 1.0 (direct passthrough) */
-    uint16_t yaw_us = hrc->pulse_us[RC_CH_YAW];
+    uint16_t yaw_us = RC_FilterPulse(hrc, RC_CH_YAW);
     if (yaw_us < RC_MIN_PULSE_US) yaw_us = RC_MIN_PULSE_US;
     if (yaw_us > RC_MAX_PULSE_US) yaw_us = RC_MAX_PULSE_US;
     hrc->data.yaw = (float)(yaw_us - RC_MID_PULSE_US) / 
