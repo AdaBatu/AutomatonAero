@@ -37,6 +37,7 @@ typedef struct {
     uint16_t min_pulse;    // Timer counts for min position
     uint16_t max_pulse;    // Timer counts for max position
     uint16_t current_pulse;
+    float travel_degrees;
 } Servo_Handle_t;
 
 /* ESC handle */
@@ -67,7 +68,8 @@ typedef enum {
 
 /* Servo functions */
 void Servo_Init(Servo_Handle_t *servo, TIM_HandleTypeDef *htim, uint32_t channel);
-void Servo_SetAngle(Servo_Handle_t *servo, float angle);  // -90 to +90 degrees
+void Servo_SetTravelDegrees(Servo_Handle_t *servo, float travel_degrees);
+void Servo_SetAngle(Servo_Handle_t *servo, float angle);
 void Servo_SetPulse(Servo_Handle_t *servo, uint16_t pulse_us);
 void Servo_SetNormalized(Servo_Handle_t *servo, float value);  // -1.0 to +1.0
 

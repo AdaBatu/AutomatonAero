@@ -26,6 +26,8 @@
     "minimum_pulse_us": 1000,
     "center_pulse_us": 1500,
     "maximum_pulse_us": 2000,
+    "roll_travel_degrees": 90.0,
+    "pitch_travel_degrees": 120.0,
     "roll_output_pin": "PA8",
     "pitch_output_pin": "PA9"
   },

@@ -44,6 +44,10 @@ string(JSON FLIGHT_ROLL_KD GET "${FLIGHT_CONFIG_JSON}" pid roll kd)
 string(JSON FLIGHT_PITCH_KP GET "${FLIGHT_CONFIG_JSON}" pid pitch kp)
 string(JSON FLIGHT_PITCH_KI GET "${FLIGHT_CONFIG_JSON}" pid pitch ki)
 string(JSON FLIGHT_PITCH_KD GET "${FLIGHT_CONFIG_JSON}" pid pitch kd)
+string(JSON FLIGHT_ROLL_SERVO_TRAVEL_DEGREES GET
+    "${FLIGHT_CONFIG_JSON}" servos roll_travel_degrees)
+string(JSON FLIGHT_PITCH_SERVO_TRAVEL_DEGREES GET
+    "${FLIGHT_CONFIG_JSON}" servos pitch_travel_degrees)
 string(JSON FLIGHT_BARO_ZERO_SAMPLES GET
     "${FLIGHT_CONFIG_JSON}" barometer_ms5611 startup_altitude_zero_samples)
 string(JSON FLIGHT_CONFIG_RX_INTERVAL_MS GET

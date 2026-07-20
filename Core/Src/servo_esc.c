@@ -25,6 +25,7 @@ void Servo_Init(Servo_Handle_t *servo, TIM_HandleTypeDef *htim, uint32_t channel
     servo->min_pulse = PWM_UsToTicks(SERVO_MIN_PULSE_US);
     servo->max_pulse = PWM_UsToTicks(SERVO_MAX_PULSE_US);
     servo->current_pulse = PWM_UsToTicks(SERVO_MID_PULSE_US);
+    servo->travel_degrees = 90.0f;
     
     // Start PWM
     HAL_TIM_PWM_Start(htim, channel);
@@ -33,20 +34,40 @@ void Servo_Init(Servo_Handle_t *servo, TIM_HandleTypeDef *htim, uint32_t channel
     __HAL_TIM_SET_COMPARE(htim, channel, servo->current_pulse);
 }
 
-/* Set servo angle (-90 to +90 degrees) */
+/* Limit normalized output travel symmetrically around center. */
+void Servo_SetTravelDegrees(Servo_Handle_t *servo, float travel_degrees)
+{
+    if (travel_degrees < 0.0f) travel_degrees = 0.0f;
+    if (travel_degrees > 90.0f) travel_degrees = 90.0f;
+
+    servo->travel_degrees = travel_degrees;
+
+    uint16_t mid_pulse = PWM_UsToTicks(SERVO_MID_PULSE_US);
+    uint16_t full_half_range =
+        (PWM_UsToTicks(SERVO_MAX_PULSE_US) - PWM_UsToTicks(SERVO_MIN_PULSE_US)) / 2;
+    uint16_t limited_half_range =
+        (uint16_t)((travel_degrees / 90.0f) * (float)full_half_range);
+
+    servo->min_pulse = mid_pulse - limited_half_range;
+    servo->max_pulse = mid_pulse + limited_half_range;
+}
+
+/* Set servo angle within configured travel. */
 void Servo_SetAngle(Servo_Handle_t *servo, float angle)
 {
     // Clamp angle
-    if (angle < -90.0f) angle = -90.0f;
-    if (angle > 90.0f) angle = 90.0f;
+    if (angle < -servo->travel_degrees) angle = -servo->travel_degrees;
+    if (angle > servo->travel_degrees) angle = servo->travel_degrees;
     
     // Map angle to pulse width
-    // -90° -> min_pulse, 0° -> mid, +90° -> max_pulse
+    // -travel -> min_pulse, 0° -> mid, +travel -> max_pulse
     uint16_t mid_pulse = PWM_UsToTicks(SERVO_MID_PULSE_US);
     uint16_t range = servo->max_pulse - servo->min_pulse;
     
-    // angle/90 gives -1 to +1, then scale to pulse range
-    float normalized = angle / 90.0f;
+    float normalized = 0.0f;
+    if (servo->travel_degrees > 0.0f) {
+        normalized = angle / servo->travel_degrees;
+    }
     uint16_t pulse = mid_pulse + (int16_t)(normalized * (range / 2));
     
     servo->current_pulse = pulse;

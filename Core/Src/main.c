@@ -200,7 +200,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-aircrft  HAL_Init();
+  HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -912,6 +912,8 @@ static void Flight_InitActuators(void)
     /* Initialize servos on TIM1 */
     Servo_Init(&servo_roll, &htim1, TIM_CHANNEL_1);   // PA8
     Servo_Init(&servo_pitch, &htim1, TIM_CHANNEL_2);  // PA9
+    Servo_SetTravelDegrees(&servo_roll, CONFIG_ROLL_SERVO_TRAVEL_DEGREES);
+    Servo_SetTravelDegrees(&servo_pitch, CONFIG_PITCH_SERVO_TRAVEL_DEGREES);
 
     /* Center the two fitted control-surface servos. Yaw and ESC outputs are
        intentionally not initialized on this airframe. */
