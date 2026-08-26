@@ -69,8 +69,6 @@
 #define configMAX_PRIORITIES                     ( 56 )
 #define configMINIMAL_STACK_SIZE                 ((uint16_t)128)
 #define configTOTAL_HEAP_SIZE                    ((size_t)8192)
-#define configCHECK_FOR_STACK_OVERFLOW           2
-#define configUSE_MALLOC_FAILED_HOOK              1
 #define configMAX_TASK_NAME_LEN                  ( 16 )
 #define configUSE_TRACE_FACILITY                 1
 #define configUSE_16_BIT_TICKS                   0

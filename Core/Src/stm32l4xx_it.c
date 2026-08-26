@@ -192,6 +192,14 @@ void EXTI2_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles EXTI line3 interrupt (RC Yaw on PB3).
+  */
+void EXTI3_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_3);
+}
+
+/**
   * @brief This function handles EXTI line4 interrupt (GPS PPS on PA4).
   */
 void EXTI4_IRQHandler(void)
@@ -200,11 +208,10 @@ void EXTI4_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles EXTI lines 10-15 interrupt (RC Pitch on PB15, RC Yaw on PB11).
+  * @brief This function handles EXTI lines 10-15 interrupt (RC Pitch on PB15).
   */
 void EXTI15_10_IRQHandler(void)
 {
-    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_11);
     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_15);
 }
 

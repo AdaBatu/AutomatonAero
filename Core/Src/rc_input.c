@@ -7,7 +7,7 @@
  *   PB1  - Throttle
  *   PB2  - Roll
  *   PB15 - Pitch
- *   PB11 - Yaw
+ *   PB3  - Yaw / front wheel steering
  */
 #include "rc_input.h"
 #include <string.h>
@@ -17,10 +17,7 @@
 #define PIN_THROTTLE    GPIO_PIN_1
 #define PIN_ROLL        GPIO_PIN_2
 #define PIN_PITCH       GPIO_PIN_15
-#define PIN_YAW         GPIO_PIN_11
-
-/* Maximum stick deflection angle in radians (±30 degrees) */
-#define MAX_STICK_ANGLE_RAD  (30.0f * 3.14159265f / 180.0f)
+#define PIN_YAW         GPIO_PIN_3
 
 /* Get channel index from GPIO pin */
 static int8_t RC_PinToChannel(uint16_t pin)
@@ -79,6 +76,9 @@ void RC_Init(RC_Handle_t *hrc)
     
     HAL_NVIC_SetPriority(EXTI2_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+
+    HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI3_IRQn);
     
     HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
@@ -173,7 +173,7 @@ void RC_Update(RC_Handle_t *hrc)
     hrc->data.pitch = (float)(pitch_us - RC_MID_PULSE_US) / 
                       (float)(RC_MAX_PULSE_US - RC_MID_PULSE_US);
     
-    /* Yaw: -1.0 to 1.0 (direct passthrough) */
+    /* Yaw: -1.0 to 1.0 (front wheel steering passthrough) */
     uint16_t yaw_us = RC_FilterPulse(hrc, RC_CH_YAW);
     if (yaw_us < RC_MIN_PULSE_US) yaw_us = RC_MIN_PULSE_US;
     if (yaw_us > RC_MAX_PULSE_US) yaw_us = RC_MAX_PULSE_US;

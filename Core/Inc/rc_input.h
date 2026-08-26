@@ -6,7 +6,7 @@
  *   PB1  - Throttle
  *   PB2  - Roll
  *   PB15 - Pitch
- *   PB11 - Yaw
+ *   PB3  - Yaw / front wheel steering
  */
 #ifndef RC_INPUT_H
 #define RC_INPUT_H
@@ -37,7 +37,7 @@ typedef struct {
     float throttle;      // 0.0 to 1.0
     float roll;          // -1.0 to 1.0 (for PID setpoint, scaled to radians)
     float pitch;         // -1.0 to 1.0 (for PID setpoint, scaled to radians)
-    float yaw;           // -1.0 to 1.0 (direct passthrough)
+    float yaw;           // -1.0 to 1.0 (front wheel steering passthrough)
     bool valid;          // True if all channels have recent valid signals
     uint32_t last_update;
 } RC_Input_t;

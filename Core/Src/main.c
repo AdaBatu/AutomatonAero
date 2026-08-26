@@ -62,16 +62,13 @@ I2C_HandleTypeDef hi2c2;
 
 SPI_HandleTypeDef hspi1;
 
+IWDG_HandleTypeDef hiwdg;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart4;
 UART_HandleTypeDef huart2;
-
-IWDG_HandleTypeDef hiwdg;
-
-/* Serializes the MPU6050 and MS5611, which share I2C2 across two tasks. */
-osMutexId_t i2c2MutexHandle;
 
 /* Definitions for flightTask */
 osThreadId_t flightTaskHandle;
@@ -118,9 +115,8 @@ static bool attitude_zero_valid = false;
 /* Actuator handles */
 Servo_Handle_t servo_roll;   // TIM1_CH1 - PA8
 Servo_Handle_t servo_pitch;  // TIM1_CH2 - PA9
-Servo_Handle_t servo_yaw;    // TIM1_CH3 - PA10
-ESC_Handle_t esc;            // TIM2_CH2 - PB3
-// NOTE: Throttle now on TIM2_CH2 (PB3), not TIM2_CH1 (PA15)
+Servo_Handle_t servo_yaw;    // TIM1_CH3 - PA10 front wheel steering
+ESC_Handle_t esc;            // Legacy throttle output unused on this airframe
 
 /* Telemetry */
 Telemetry_Handle_t htelemetry;
@@ -141,6 +137,7 @@ volatile uint8_t system_armed = CONFIG_SYSTEM_ARMED_DEFAULT;
 /* Task heartbeats used by the independent hardware watchdog. */
 static volatile uint32_t sensors_heartbeat = 0;
 static volatile uint32_t telemetry_heartbeat = 0;
+static osMutexId_t i2c2MutexHandle;
 
 /* USER CODE END PV */
 
@@ -288,14 +285,6 @@ int main(void)
 
   /* creation of sensorsTask */
   sensorsTaskHandle = osThreadNew(StartsensorsTask, NULL, &sensorsTask_attributes);
-
-  /* Never start the scheduler with a missing task. Doing so can eventually
-     present as corrupted FreeRTOS list metadata in the tick interrupt. */
-  if (flightTaskHandle == NULL || telemetryTaskHandle == NULL ||
-      sensorsTaskHandle == NULL)
-  {
-    NVIC_SystemReset();
-  }
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -505,15 +494,13 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  /* Use a conservative SPI clock for the off-board SX1278 wiring. Register
-     reads may tolerate a marginal MISO line while longer FIFO reads do not. */
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
   hspi1.Init.CRCPolynomial = 7;
   hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-  hspi1.Init.NSSPMode = SPI_NSS_PULSE_DISABLE;
+  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
   if (HAL_SPI_Init(&hspi1) != HAL_OK)
   {
     Error_Handler();
@@ -626,7 +613,6 @@ static void MX_TIM2_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
@@ -646,28 +632,15 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -765,6 +738,12 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9|GPIO_PIN_10, GPIO_PIN_RESET);
 
+  /*Configure GPIO pins : PC1 PC7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PA4 */
   GPIO_InitStruct.Pin = GPIO_PIN_4;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
@@ -784,18 +763,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PC7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
   /*Configure GPIO pins : PC9 PC10 */
   GPIO_InitStruct.Pin = GPIO_PIN_9|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB3 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -912,13 +891,15 @@ static void Flight_InitActuators(void)
     /* Initialize servos on TIM1 */
     Servo_Init(&servo_roll, &htim1, TIM_CHANNEL_1);   // PA8
     Servo_Init(&servo_pitch, &htim1, TIM_CHANNEL_2);  // PA9
+    Servo_Init(&servo_yaw, &htim1, TIM_CHANNEL_3);    // PA10 front wheel
     Servo_SetTravelDegrees(&servo_roll, CONFIG_ROLL_SERVO_TRAVEL_DEGREES);
     Servo_SetTravelDegrees(&servo_pitch, CONFIG_PITCH_SERVO_TRAVEL_DEGREES);
+    Servo_SetTravelDegrees(&servo_yaw, CONFIG_FRONT_WHEEL_TRAVEL_DEGREES);
 
-    /* Center the two fitted control-surface servos. Yaw and ESC outputs are
-       intentionally not initialized on this airframe. */
+    /* Center the flight-control servos and apply front wheel trim. */
     Servo_SetAngle(&servo_roll, 0.0f);
     Servo_SetAngle(&servo_pitch, 0.0f);
+    Servo_SetAngle(&servo_yaw, CONFIG_FRONT_WHEEL_NOMINAL_DEGREES);
 }
 
 /**
@@ -1103,20 +1084,24 @@ static void Flight_ControlLoop(void)
     /* Get PID outputs for roll and pitch */
     float roll_out, pitch_out, yaw_pid_out;
     FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_pid_out);
+    float front_wheel_angle = CONFIG_FRONT_WHEEL_NOMINAL_DEGREES +
+                              rc_input.yaw * CONFIG_FRONT_WHEEL_TRAVEL_DEGREES;
     
-    /* This airframe has no yaw servo or flight-computer throttle output. */
+    /* This airframe has no flight-computer throttle output. */
     throttle_command = 0.0f;
     
     /* ========== ACTUATOR OUTPUT ========== */
     if (system_armed) {
-        /* Apply PID outputs to roll/pitch servos (normalized -1 to +1) */
+        /* Apply roll/pitch PID and manual front-wheel steering. */
         Servo_SetNormalized(&servo_roll, roll_out);
         Servo_SetNormalized(&servo_pitch, pitch_out);
+        Servo_SetAngle(&servo_yaw, front_wheel_angle);
         
     } else {
-        /* Disarmed - center servos, zero throttle */
+        /* Disarmed - center flight surfaces, hold front-wheel trim. */
         Servo_SetNormalized(&servo_roll, 0.0f);
         Servo_SetNormalized(&servo_pitch, 0.0f);
+        Servo_SetAngle(&servo_yaw, CONFIG_FRONT_WHEEL_NOMINAL_DEGREES);
     }
     
     flight_state.loop_count++;
@@ -1151,9 +1136,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         GPS_PPS_IRQHandler(&hgps);
     }
     
-    /* RC receiver input pins (PB1, PB2, PB11, PB15) */
+    /* RC receiver input pins (PB1, PB2, PB3, PB15) */
     if (GPIO_Pin == GPIO_PIN_1 || GPIO_Pin == GPIO_PIN_2 ||
-        GPIO_Pin == GPIO_PIN_11 || GPIO_Pin == GPIO_PIN_15) {
+        GPIO_Pin == GPIO_PIN_3 || GPIO_Pin == GPIO_PIN_15) {
         RC_EXTI_Handler(&hrc, GPIO_Pin);
     }
 }
