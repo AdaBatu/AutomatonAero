@@ -28,7 +28,7 @@
     "maximum_pulse_us": 2000,
     "roll_travel_degrees": 90.0,
     "pitch_travel_degrees": 120.0,
-    "front_wheel_travel_degrees": 60.0,
+    "front_wheel_travel_degrees": 90.0,
     "front_wheel_nominal_degrees": 0.0,
     "roll_output_pin": "PA8",
     "pitch_output_pin": "PA9",
@@ -44,7 +44,7 @@
     "input_quantization_hysteresis": true,
     "signal_timeout_ms": 500,
     "roll_pin": "PB2",
-    "pitch_pin": "PB15",
+    "pitch_pin": "PC12",
     "yaw_pin": "PB3"
   },
   "imu_mpu6050": {

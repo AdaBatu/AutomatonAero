@@ -208,11 +208,11 @@ void EXTI4_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles EXTI lines 10-15 interrupt (RC Pitch on PB15).
+  * @brief This function handles EXTI lines 10-15 interrupt (RC Pitch on PC12).
   */
 void EXTI15_10_IRQHandler(void)
 {
-    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_15);
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_12);
 }
 
 /**

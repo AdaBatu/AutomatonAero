@@ -62,8 +62,6 @@ I2C_HandleTypeDef hi2c2;
 
 SPI_HandleTypeDef hspi1;
 
-IWDG_HandleTypeDef hiwdg;
-
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
@@ -99,6 +97,7 @@ MS5611_Handle_t hbaro;
 GPS_Handle_t hgps;
 SX1278_Handle_t hlora;
 PowerSensor_Handle_t hpower;
+IWDG_HandleTypeDef hiwdg;
 
 /* Control system */
 KalmanFilter_t kalman;
@@ -750,9 +749,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB1 PB2 PB11 PB15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_11|GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  /*Configure GPIO pins : PB1 PB2 PB3 (RC PWM inputs) */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -763,6 +762,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PB11 PB15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pins : PC9 PC10 */
   GPIO_InitStruct.Pin = GPIO_PIN_9|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -770,11 +775,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PB3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  /*Configure GPIO pin : PC12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -1058,8 +1063,11 @@ static void Flight_ControlLoop(void)
         flight_state.orientation.roll = Flight_WrapAngle(raw_orientation.roll - attitude_zero_roll);
         flight_state.orientation.pitch = Flight_WrapAngle(raw_orientation.pitch - attitude_zero_pitch);
         flight_state.orientation.yaw = Flight_WrapAngle(raw_orientation.yaw - attitude_zero_yaw);
+        /* Navigation needs the gravity-referenced attitude.  The zeroed
+           attitude is a pilot/control reference; using it here turns the
+           aircraft's resting tilt into false horizontal acceleration. */
         NavFusion_Predict(&nav_fusion, &flight_state.imu.accel,
-                          &flight_state.orientation, dt);
+                          &raw_orientation, dt);
     }
 
     NavFusion_CorrectGPS(&nav_fusion, &flight_state.gps, hgps.last_valid_fix);
@@ -1136,9 +1144,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         GPS_PPS_IRQHandler(&hgps);
     }
     
-    /* RC receiver input pins (PB1, PB2, PB3, PB15) */
+    /* PWM RC receiver input pins: PB1, PB2, PB3, and PC12. */
     if (GPIO_Pin == GPIO_PIN_1 || GPIO_Pin == GPIO_PIN_2 ||
-        GPIO_Pin == GPIO_PIN_3 || GPIO_Pin == GPIO_PIN_15) {
+        GPIO_Pin == GPIO_PIN_3 || GPIO_Pin == GPIO_PIN_12) {
         RC_EXTI_Handler(&hrc, GPIO_Pin);
     }
 }
@@ -1223,7 +1231,7 @@ void StarttelemetryTask(void *argument)
       float roll_out, pitch_out, yaw_out;
       FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_out);
       SerialTelemetry_Print(&hserial_telem, &flight_state,
-                            roll_out, pitch_out, 0.0f, 0.0f);
+                            &hrc, roll_out, pitch_out, hrc.data.yaw, 0.0f);
     }
     #endif
     telemetry_heartbeat = HAL_GetTick();

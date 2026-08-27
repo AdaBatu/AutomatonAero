@@ -6,8 +6,8 @@
  * Pin assignments:
  *   PB1  - Throttle
  *   PB2  - Roll
- *   PB15 - Pitch
- *   PB3  - Yaw / front wheel steering
+ *   PC12 - Pitch
+ *   PB3  - Yaw / front wheel steering PWM
  */
 #include "rc_input.h"
 #include <string.h>
@@ -16,8 +16,13 @@
 /* Pin to channel mapping */
 #define PIN_THROTTLE    GPIO_PIN_1
 #define PIN_ROLL        GPIO_PIN_2
-#define PIN_PITCH       GPIO_PIN_15
+#define PIN_PITCH       GPIO_PIN_12
 #define PIN_YAW         GPIO_PIN_3
+
+static GPIO_TypeDef *RC_ChannelPort(uint8_t channel)
+{
+    return (channel == RC_CH_PITCH) ? GPIOC : GPIOB;
+}
 
 /* Get channel index from GPIO pin */
 static int8_t RC_PinToChannel(uint16_t pin)
@@ -64,11 +69,15 @@ void RC_Init(RC_Handle_t *hrc)
     GPIO_InitTypeDef GPIO_InitStruct = {0};
     
     __HAL_RCC_GPIOB_CLK_ENABLE();
-    
-    GPIO_InitStruct.Pin = PIN_THROTTLE | PIN_ROLL | PIN_PITCH | PIN_YAW;
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+
+    GPIO_InitStruct.Pin = PIN_THROTTLE | PIN_ROLL | PIN_YAW;
     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
     GPIO_InitStruct.Pull = GPIO_PULLDOWN;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = PIN_PITCH;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
     
     /* Enable EXTI interrupts for the RC pins */
     HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
@@ -79,7 +88,7 @@ void RC_Init(RC_Handle_t *hrc)
 
     HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(EXTI3_IRQn);
-    
+
     HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
@@ -116,7 +125,11 @@ void RC_EXTI_Handler(RC_Handle_t *hrc, uint16_t GPIO_Pin)
     
     uint32_t now = HAL_GetTick();
     uint32_t now_cycles = DWT->CYCCNT;
-    GPIO_PinState state = HAL_GPIO_ReadPin(GPIOB, GPIO_Pin);
+    GPIO_PinState state = HAL_GPIO_ReadPin(RC_ChannelPort((uint8_t)channel),
+                                          GPIO_Pin);
+
+    hrc->edge_count[channel]++;
+    hrc->last_edge_time[channel] = now;
     
     if (state == GPIO_PIN_SET) {
         /* Rising edge - start measuring */
@@ -133,6 +146,9 @@ void RC_EXTI_Handler(RC_Handle_t *hrc, uint16_t GPIO_Pin)
         if (pulse >= 800U && pulse <= 2200U) {
             hrc->pulse_us[channel] = (uint16_t)pulse;
             hrc->last_pulse_time[channel] = now;
+            hrc->pulse_count[channel]++;
+        } else {
+            hrc->rejected_count[channel]++;
         }
     }
 }
@@ -143,9 +159,14 @@ void RC_Update(RC_Handle_t *hrc)
     uint32_t now = HAL_GetTick();
     bool all_valid = true;
     
-    /* Check signal validity for all channels */
-    for (int i = 0; i < RC_NUM_CHANNELS; i++) {
-        if (now - hrc->last_pulse_time[i] > RC_SIGNAL_TIMEOUT) {
+    /* All proportional RC channels must have a recent captured pulse. */
+    static const uint8_t captured_channels[] = {
+        RC_CH_THROTTLE, RC_CH_ROLL, RC_CH_PITCH, RC_CH_YAW
+    };
+    for (uint8_t i = 0; i < sizeof(captured_channels); i++) {
+        uint8_t channel = captured_channels[i];
+        if (hrc->pulse_count[channel] == 0U ||
+            now - hrc->last_pulse_time[channel] > RC_SIGNAL_TIMEOUT) {
             all_valid = false;
         }
     }
@@ -199,6 +220,38 @@ void RC_GetInput(RC_Handle_t *hrc, RC_Input_t *input)
 bool RC_IsValid(RC_Handle_t *hrc)
 {
     return hrc->data.valid;
+}
+
+bool RC_GetChannelDiagnostics(const RC_Handle_t *hrc, uint8_t channel,
+                              RC_ChannelDiagnostics_t *diagnostics)
+{
+    if (hrc == NULL || diagnostics == NULL || channel >= RC_NUM_CHANNELS) {
+        return false;
+    }
+
+    /* The ISR can update these fields between task instructions. Individual
+       loads are atomic on Cortex-M4; copy each once to make a stable report. */
+    uint32_t now = HAL_GetTick();
+    uint32_t count = hrc->pulse_count[channel];
+    uint32_t edge_count = hrc->edge_count[channel];
+    uint32_t last_pulse = hrc->last_pulse_time[channel];
+    uint32_t last_edge = hrc->last_edge_time[channel];
+
+    diagnostics->pulse_us = hrc->pulse_us[channel];
+    diagnostics->edge_count = edge_count;
+    diagnostics->pulse_count = count;
+    diagnostics->rejected_count = hrc->rejected_count[channel];
+    diagnostics->age_ms = (count == 0U) ? now : (now - last_pulse);
+    diagnostics->edge_age_ms = (edge_count == 0U) ? now : (now - last_edge);
+    diagnostics->signal_present =
+        (count != 0U) && (diagnostics->age_ms <= RC_SIGNAL_TIMEOUT);
+
+    uint16_t pin = (channel == RC_CH_THROTTLE) ? PIN_THROTTLE :
+                   (channel == RC_CH_ROLL) ? PIN_ROLL :
+                   (channel == RC_CH_PITCH) ? PIN_PITCH : PIN_YAW;
+    diagnostics->pin_high =
+        (HAL_GPIO_ReadPin(RC_ChannelPort(channel), pin) == GPIO_PIN_SET);
+    return true;
 }
 
 /* Convert normalized stick position to angle (radians) */

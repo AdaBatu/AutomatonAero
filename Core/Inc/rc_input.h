@@ -5,8 +5,8 @@
  * Pin assignments:
  *   PB1  - Throttle
  *   PB2  - Roll
- *   PB15 - Pitch
- *   PB3  - Yaw / front wheel steering
+ *   PC12 - Pitch
+ *   PB3  - Yaw / front wheel steering PWM
  */
 #ifndef RC_INPUT_H
 #define RC_INPUT_H
@@ -42,10 +42,26 @@ typedef struct {
     uint32_t last_update;
 } RC_Input_t;
 
+/* Per-channel capture information for wiring/signal diagnostics. */
+typedef struct {
+    uint16_t pulse_us;          // Last accepted high pulse width
+    uint32_t edge_count;        // Rising + falling edges seen since boot
+    uint32_t pulse_count;       // Number of accepted pulses since boot
+    uint32_t rejected_count;    // Completed pulses outside 800-2200 us
+    uint32_t age_ms;            // Time since the last accepted pulse
+    uint32_t edge_age_ms;       // Time since any electrical transition
+    bool signal_present;        // A valid pulse arrived within the timeout
+    bool pin_high;              // Current electrical level at the input pin
+} RC_ChannelDiagnostics_t;
+
 /* RC handle */
 typedef struct {
     volatile uint16_t pulse_us[RC_NUM_CHANNELS]; // Raw ISR pulse widths
-    uint32_t last_pulse_time[RC_NUM_CHANNELS];
+    volatile uint32_t last_pulse_time[RC_NUM_CHANNELS];
+    volatile uint32_t last_edge_time[RC_NUM_CHANNELS];
+    volatile uint32_t edge_count[RC_NUM_CHANNELS];
+    volatile uint32_t pulse_count[RC_NUM_CHANNELS];
+    volatile uint32_t rejected_count[RC_NUM_CHANNELS];
     uint32_t filtered_sample_time[RC_NUM_CHANNELS];
     float filtered_pulse_us[RC_NUM_CHANNELS];
     uint16_t stable_pulse_us[RC_NUM_CHANNELS];
@@ -65,6 +81,10 @@ void RC_GetInput(RC_Handle_t *hrc, RC_Input_t *input);
 
 /* Check if RC signal is valid */
 bool RC_IsValid(RC_Handle_t *hrc);
+
+/* Get capture details for one channel without printing from the ISR. */
+bool RC_GetChannelDiagnostics(const RC_Handle_t *hrc, uint8_t channel,
+                              RC_ChannelDiagnostics_t *diagnostics);
 
 /* GPIO EXTI callback handler (call from HAL_GPIO_EXTI_Callback) */
 void RC_EXTI_Handler(RC_Handle_t *hrc, uint16_t GPIO_Pin);

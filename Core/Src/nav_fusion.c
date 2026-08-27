@@ -6,25 +6,51 @@
 #define DEG_TO_RAD_D            0.017453292519943295
 #define RAD_TO_DEG_D            57.29577951308232
 #define ACCEL_NOISE_VARIANCE    4.0f
+#define ACCEL_BIAS_WALK_VARIANCE 0.01f
 #define GPS_POSITION_VARIANCE   25.0f
 #define GPS_VELOCITY_VARIANCE   1.0f
+#define GPS_STATIONARY_VARIANCE 0.04f
+#define GPS_STATIONARY_SPEED    0.75f
+#define MAX_HORIZONTAL_ACCEL    30.0f
 
 static void axis_predict(NavAxisKalman_t *axis, float acceleration, float dt)
 {
     float dt2 = dt * dt;
-    axis->position += axis->velocity * dt + 0.5f * acceleration * dt2;
-    axis->velocity += acceleration * dt;
+    float corrected_accel = acceleration - axis->accel_bias;
+    axis->position += axis->velocity * dt + 0.5f * corrected_accel * dt2;
+    axis->velocity += corrected_accel * dt;
 
-    float p00 = axis->covariance[0][0];
-    float p01 = axis->covariance[0][1];
-    float p10 = axis->covariance[1][0];
-    float p11 = axis->covariance[1][1];
-    axis->covariance[0][0] = p00 + dt * (p10 + p01) + dt2 * p11 +
-                              0.25f * dt2 * dt2 * ACCEL_NOISE_VARIANCE;
-    axis->covariance[0][1] = p01 + dt * p11 +
-                              0.5f * dt2 * dt * ACCEL_NOISE_VARIANCE;
-    axis->covariance[1][0] = axis->covariance[0][1];
-    axis->covariance[1][1] = p11 + dt2 * ACCEL_NOISE_VARIANCE;
+    /* State is [position, velocity, accelerometer bias].  Keeping bias in the
+       filter lets GPS velocity corrections remove constant IMU/installation
+       error instead of allowing it to become unbounded speed drift. */
+    const float f[3][3] = {
+        {1.0f, dt, -0.5f * dt2},
+        {0.0f, 1.0f, -dt},
+        {0.0f, 0.0f, 1.0f}
+    };
+    float fp[3][3] = {{0}};
+    float predicted[3][3] = {{0}};
+    for (uint8_t row = 0U; row < 3U; ++row) {
+        for (uint8_t col = 0U; col < 3U; ++col) {
+            for (uint8_t k = 0U; k < 3U; ++k)
+                fp[row][col] += f[row][k] * axis->covariance[k][col];
+        }
+    }
+    for (uint8_t row = 0U; row < 3U; ++row) {
+        for (uint8_t col = 0U; col < 3U; ++col) {
+            for (uint8_t k = 0U; k < 3U; ++k)
+                predicted[row][col] += fp[row][k] * f[col][k];
+        }
+    }
+    float accel_q[3] = {0.5f * dt2, dt, 0.0f};
+    for (uint8_t row = 0U; row < 3U; ++row) {
+        for (uint8_t col = 0U; col < 3U; ++col) {
+            predicted[row][col] += accel_q[row] * accel_q[col] *
+                                   ACCEL_NOISE_VARIANCE;
+            axis->covariance[row][col] = predicted[row][col];
+        }
+    }
+    axis->covariance[2][2] += dt * ACCEL_BIAS_WALK_VARIANCE;
 }
 
 static void axis_correct(NavAxisKalman_t *axis, float measurement,
@@ -34,16 +60,28 @@ static void axis_correct(NavAxisKalman_t *axis, float measurement,
                        (state_index == 0U ? axis->position : axis->velocity);
     float s = axis->covariance[state_index][state_index] + variance;
     if (s <= 0.0f) return;
-    float k0 = axis->covariance[0][state_index] / s;
-    float k1 = axis->covariance[1][state_index] / s;
-    float row0 = axis->covariance[state_index][0];
-    float row1 = axis->covariance[state_index][1];
-    axis->position += k0 * innovation;
-    axis->velocity += k1 * innovation;
-    axis->covariance[0][0] -= k0 * row0;
-    axis->covariance[0][1] -= k0 * row1;
-    axis->covariance[1][0] -= k1 * row0;
-    axis->covariance[1][1] -= k1 * row1;
+    float gain[3];
+    float measured_row[3];
+    for (uint8_t i = 0U; i < 3U; ++i) {
+        gain[i] = axis->covariance[i][state_index] / s;
+        measured_row[i] = axis->covariance[state_index][i];
+    }
+    axis->position += gain[0] * innovation;
+    axis->velocity += gain[1] * innovation;
+    axis->accel_bias += gain[2] * innovation;
+    for (uint8_t row = 0U; row < 3U; ++row) {
+        for (uint8_t col = 0U; col < 3U; ++col)
+            axis->covariance[row][col] -= gain[row] * measured_row[col];
+    }
+    /* Roundoff can slowly make P asymmetric on a microcontroller. */
+    for (uint8_t row = 0U; row < 3U; ++row) {
+        for (uint8_t col = row + 1U; col < 3U; ++col) {
+            float average = 0.5f * (axis->covariance[row][col] +
+                                    axis->covariance[col][row]);
+            axis->covariance[row][col] = average;
+            axis->covariance[col][row] = average;
+        }
+    }
 }
 
 void NavFusion_Init(NavFusion_t *filter)
@@ -51,6 +89,7 @@ void NavFusion_Init(NavFusion_t *filter)
     memset(filter, 0, sizeof(*filter));
     filter->north.covariance[0][0] = 100.0f;
     filter->north.covariance[1][1] = 25.0f;
+    filter->north.covariance[2][2] = 4.0f;
     filter->east = filter->north;
 }
 
@@ -65,6 +104,11 @@ void NavFusion_Predict(NavFusion_t *filter, const Vector3f_t *a,
                         (cy * sp * cr + sy * sr) * a->z;
     float east_accel = sy * cp * a->x + (sy * sp * sr + cy * cr) * a->y +
                        (sy * sp * cr - cy * sr) * a->z;
+    if (!isfinite(north_accel) || !isfinite(east_accel)) return;
+    if (north_accel > MAX_HORIZONTAL_ACCEL) north_accel = MAX_HORIZONTAL_ACCEL;
+    if (north_accel < -MAX_HORIZONTAL_ACCEL) north_accel = -MAX_HORIZONTAL_ACCEL;
+    if (east_accel > MAX_HORIZONTAL_ACCEL) east_accel = MAX_HORIZONTAL_ACCEL;
+    if (east_accel < -MAX_HORIZONTAL_ACCEL) east_accel = -MAX_HORIZONTAL_ACCEL;
     axis_predict(&filter->north, north_accel, dt);
     axis_predict(&filter->east, east_accel, dt);
 }
@@ -84,13 +128,16 @@ void NavFusion_CorrectGPS(NavFusion_t *filter, const GPS_Data_t *gps,
                    DEG_TO_RAD_D * EARTH_RADIUS_M;
     double east = ((double)gps->longitude - filter->origin_longitude) *
                   DEG_TO_RAD_D * EARTH_RADIUS_M * cos(lat_rad);
+    bool stationary = gps->speed < GPS_STATIONARY_SPEED;
     float course = gps->course * (float)DEG_TO_RAD_D;
-    float vn = gps->speed * cosf(course);
-    float ve = gps->speed * sinf(course);
+    float vn = stationary ? 0.0f : gps->speed * cosf(course);
+    float ve = stationary ? 0.0f : gps->speed * sinf(course);
+    float velocity_variance = stationary ? GPS_STATIONARY_VARIANCE :
+                                           GPS_VELOCITY_VARIANCE;
     axis_correct(&filter->north, (float)north, 0U, GPS_POSITION_VARIANCE);
     axis_correct(&filter->east, (float)east, 0U, GPS_POSITION_VARIANCE);
-    axis_correct(&filter->north, vn, 1U, GPS_VELOCITY_VARIANCE);
-    axis_correct(&filter->east, ve, 1U, GPS_VELOCITY_VARIANCE);
+    axis_correct(&filter->north, vn, 1U, velocity_variance);
+    axis_correct(&filter->east, ve, 1U, velocity_variance);
     filter->last_gps_fix_tick = fix_tick;
 }
 

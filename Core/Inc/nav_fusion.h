@@ -6,7 +6,8 @@
 typedef struct {
     float position;
     float velocity;
-    float covariance[2][2];
+    float accel_bias;
+    float covariance[3][3];
 } NavAxisKalman_t;
 
 typedef struct {

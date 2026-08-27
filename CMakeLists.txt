@@ -99,6 +99,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/telemetry.c
     Core/Src/rc_input.c
     Core/Src/serial_telemetry.c
+    # Flight watchdog is initialized in user code rather than as a CubeMX IP.
+    Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_iwdg.c
 )
 
 # Add include paths
@@ -109,7 +111,8 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
+    # Preserve the user-code watchdog when CubeMX regenerates HAL config.
+    HAL_IWDG_MODULE_ENABLED
 )
 
 # Remove wrong libob.a library dependency when using cpp files
