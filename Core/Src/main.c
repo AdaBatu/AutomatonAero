@@ -1094,8 +1094,8 @@ static void Flight_ControlLoop(void)
     /* Get PID outputs for roll and pitch */
     float roll_out, pitch_out, yaw_pid_out;
     FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_pid_out);
-    float front_wheel_angle = CONFIG_FRONT_WHEEL_NOMINAL_DEGREES +
-                              rc_input.yaw * CONFIG_FRONT_WHEEL_TRAVEL_DEGREES;
+    float front_wheel_angle = CONFIG_FRONT_WHEEL_NOMINAL_DEGREES -
+                  rc_input.yaw * CONFIG_FRONT_WHEEL_TRAVEL_DEGREES;
     
     /* This airframe has no flight-computer throttle output. */
     throttle_command = 0.0f;
