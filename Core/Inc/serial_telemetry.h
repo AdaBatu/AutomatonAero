@@ -14,7 +14,6 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "flight_types.h"
-#include "rc_input.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -48,8 +47,9 @@ void SerialTelemetry_Init(SerialTelemetry_Handle_t *handle, uint8_t rate_hz);
  * @param throttle Throttle command (0.0 to 1.0)
  */
 void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t *state,
-                          const RC_Handle_t *rc, float servo_roll, float servo_pitch,
-                          float servo_yaw, float throttle);
+                          float servo_roll, float servo_pitch, float servo_yaw,
+                          float throttle, float mcu_temperature_c,
+                          bool mcu_temperature_valid);
 
 /**
  * @brief Check if ready to print (based on interval)

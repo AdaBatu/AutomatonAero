@@ -46,6 +46,37 @@ float ADC_ToVoltage(uint32_t adc_value)
     return (float)adc_value * ADC_VREF / (float)ADC_MAX_VALUE;
 }
 
+HAL_StatusTypeDef MCU_Temperature_Read(ADC_HandleTypeDef *hadc,
+                                       float *temperature_c)
+{
+    if (hadc == NULL || temperature_c == NULL) return HAL_ERROR;
+
+    ADC_ChannelConfTypeDef config = {0};
+    config.Channel = ADC_CHANNEL_TEMPSENSOR;
+    config.Rank = ADC_REGULAR_RANK_1;
+    config.SamplingTime = ADC_SAMPLETIME_247CYCLES_5;
+    config.SingleDiff = ADC_SINGLE_ENDED;
+    config.OffsetNumber = ADC_OFFSET_NONE;
+    config.Offset = 0;
+    if (HAL_ADC_ConfigChannel(hadc, &config) != HAL_OK) return HAL_ERROR;
+
+    uint32_t sum = 0U;
+    for (uint8_t i = 0U; i < 8U; ++i) {
+        if (HAL_ADC_Start(hadc) != HAL_OK) return HAL_ERROR;
+        if (HAL_ADC_PollForConversion(hadc, 10U) != HAL_OK) {
+            HAL_ADC_Stop(hadc);
+            return HAL_TIMEOUT;
+        }
+        sum += HAL_ADC_GetValue(hadc);
+        HAL_ADC_Stop(hadc);
+    }
+
+    uint32_t average = sum / 8U;
+    *temperature_c = (float)__HAL_ADC_CALC_TEMPERATURE(
+        3300U, average, ADC_RESOLUTION_12B);
+    return HAL_OK;
+}
+
 HAL_StatusTypeDef PowerSensor_Read(PowerSensor_Handle_t *hpow, Power_Data_t *data)
 {
     /* CJMCU-758 OUT2 on A5 / PC0 / ADC1_IN1. */

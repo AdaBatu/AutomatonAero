@@ -44,5 +44,7 @@ void PowerSensor_CalibrateZeroCurrent(PowerSensor_Handle_t *hpow);
 /* Low-level ADC functions */
 uint32_t ADC_ReadChannel(ADC_HandleTypeDef *hadc, uint32_t channel);
 float ADC_ToVoltage(uint32_t adc_value);
+HAL_StatusTypeDef MCU_Temperature_Read(ADC_HandleTypeDef *hadc,
+                                       float *temperature_c);
 
 #endif /* ADC_SENSORS_H */

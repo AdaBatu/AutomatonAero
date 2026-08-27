@@ -137,6 +137,8 @@ volatile uint8_t system_armed = CONFIG_SYSTEM_ARMED_DEFAULT;
 static volatile uint32_t sensors_heartbeat = 0;
 static volatile uint32_t telemetry_heartbeat = 0;
 static osMutexId_t i2c2MutexHandle;
+static volatile float mcu_temperature_c = 0.0f;
+static volatile bool mcu_temperature_valid = false;
 
 /* USER CODE END PV */
 
@@ -1231,7 +1233,8 @@ void StarttelemetryTask(void *argument)
       float roll_out, pitch_out, yaw_out;
       FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_out);
       SerialTelemetry_Print(&hserial_telem, &flight_state,
-                            &hrc, roll_out, pitch_out, hrc.data.yaw, 0.0f);
+                            roll_out, pitch_out, hrc.data.yaw, 0.0f,
+                            mcu_temperature_c, mcu_temperature_valid);
     }
     #endif
     telemetry_heartbeat = HAL_GetTick();
@@ -1269,6 +1272,7 @@ void StartsensorsTask(void *argument)
   bool baro_startup_zero_valid = false;
   uint32_t last_gps_rearm = HAL_GetTick();
   uint32_t last_power_read = 0;
+  uint32_t last_mcu_temperature_read = 0;
   for(;;)
   {
     uint32_t now = HAL_GetTick();
@@ -1336,6 +1340,13 @@ void StartsensorsTask(void *argument)
     if (now - last_power_read >= 20U) {
       PowerSensor_Read(&hpower, &flight_state.power);
       last_power_read = now;
+    }
+    if (now - last_mcu_temperature_read >= 1000U) {
+      float temperature_c;
+      mcu_temperature_valid =
+          (MCU_Temperature_Read(&hadc1, &temperature_c) == HAL_OK);
+      if (mcu_temperature_valid) mcu_temperature_c = temperature_c;
+      last_mcu_temperature_read = now;
     }
     /* GPS update (if needed) */
     GPS_GetData(&hgps, &flight_state.gps);

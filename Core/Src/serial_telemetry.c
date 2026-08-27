@@ -60,8 +60,9 @@ void SerialTelemetry_SetEnabled(SerialTelemetry_Handle_t *handle, bool enabled)
  * @brief Print all telemetry data
  */
 void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t *state,
-                          const RC_Handle_t *rc, float servo_roll, float servo_pitch,
-                          float servo_yaw, float throttle)
+                          float servo_roll, float servo_pitch, float servo_yaw,
+                          float throttle, float mcu_temperature_c,
+                          bool mcu_temperature_valid)
 {
     if (!handle->enabled) return;
     
@@ -92,48 +93,6 @@ void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t
     }
     printf("\n");
 
-    /* Raw input check: this remains useful even when another missing RC
-       channel makes the combined RC validity flag false. */
-    RC_ChannelDiagnostics_t pitch_diag;
-    if (RC_GetChannelDiagnostics(rc, RC_CH_PITCH, &pitch_diag))
-    {
-        printf("--- RC Pitch Input (PC12 / CN7 pin 3) ---\n");
-        if (pitch_diag.edge_count == 0U)
-        {
-            printf("NO EDGES since boot | Pin: %s\n",
-                   pitch_diag.pin_high ? "HIGH" : "LOW");
-        }
-        else if (pitch_diag.pulse_count == 0U)
-        {
-            printf("EDGES SEEN, but no 800-2200 us pulse | Pin: %s\n",
-                   pitch_diag.pin_high ? "HIGH" : "LOW");
-            printf("Last edge: %lu ms ago | Edges: %lu | Rejected pulses: %lu\n",
-                   pitch_diag.edge_age_ms, pitch_diag.edge_count,
-                   pitch_diag.rejected_count);
-        }
-        else
-        {
-            printf("Pulse: %u us | Normalized: %+.3f | Signal: %s\n",
-                   pitch_diag.pulse_us, rc->data.pitch,
-                   pitch_diag.signal_present ? "PRESENT" : "STALE");
-            printf("Last pulse: %lu ms ago | Accepted: %lu | Rejected: %lu | Pin: %s\n",
-                   pitch_diag.age_ms, pitch_diag.pulse_count,
-                   pitch_diag.rejected_count,
-                   pitch_diag.pin_high ? "HIGH" : "LOW");
-        }
-        printf("\n");
-    }
-
-    RC_ChannelDiagnostics_t yaw_diag;
-    if (RC_GetChannelDiagnostics(rc, RC_CH_YAW, &yaw_diag))
-    {
-        printf("--- RC Yaw Input (PB3) ---\n");
-        printf("Pulse: %u us | Normalized: %+.3f | Signal: %s | Rejected: %lu\n\n",
-               yaw_diag.pulse_us, rc->data.yaw,
-               yaw_diag.signal_present ? "PRESENT" : "MISSING/STALE",
-               yaw_diag.rejected_count);
-    }
-    
     // IMU Data
     printf("--- IMU (MPU6050) ---\n");
     if (state->imu.valid)
@@ -213,6 +172,10 @@ void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t
     // System Health
     printf("--- System Health ---\n");
     uint32_t now = HAL_GetTick();
+    if (mcu_temperature_valid)
+        printf("MCU temperature: %.1f C\n", mcu_temperature_c);
+    else
+        printf("MCU temperature: NOT VALID\n");
     printf("Last IMU update: %lu ms ago\n", now - state->last_imu_update);
     printf("Last GPS update: %lu ms ago\n", now - state->last_gps_update);
     printf("Last Baro update: %lu ms ago\n", now - state->last_baro_update);
