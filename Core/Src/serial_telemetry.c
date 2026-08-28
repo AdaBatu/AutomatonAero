@@ -7,6 +7,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "serial_telemetry.h"
+#include "flight_config_generated.h"
 #include "main.h"
 #include <stdio.h>
 #include <math.h>
@@ -60,9 +61,14 @@ void SerialTelemetry_SetEnabled(SerialTelemetry_Handle_t *handle, bool enabled)
  * @brief Print all telemetry data
  */
 void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t *state,
+                          const RC_Input_t *rc_input,
                           float servo_roll, float servo_pitch, float servo_yaw,
                           float throttle, float mcu_temperature_c,
-                          bool mcu_temperature_valid)
+                          bool mcu_temperature_valid,
+                          bool reverse_rc_signal_valid,
+                          bool baro_reference_valid,
+                          bool system_armed,
+                          bool reverse_thrust_active)
 {
     if (!handle->enabled) return;
     
@@ -90,6 +96,16 @@ void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t
     else
     {
         printf("GPS: NO FIX | Satellites: %d\n", state->gps.satellites);
+    }
+    printf("\n");
+
+    // Fused vertical state
+    printf("--- Fused Height ---\n");
+    if (state->navigation.height_valid) {
+        printf("Height: %.2f m | Vertical speed: %+.2f m/s\n",
+               state->navigation.altitude, state->navigation.velocity_up);
+    } else {
+        printf("Fused height: NOT VALID\n");
     }
     printf("\n");
 
@@ -152,6 +168,22 @@ void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t
     printf("Servos: Roll: %3d | Pitch: %3d | Yaw: %3d (0-255)\n",
            pwm_roll, pwm_pitch, pwm_yaw);
     printf("Throttle: %3d (0-255) | %.1f%%\n", pwm_throttle, throttle * 100.0f);
+    printf("Reverse thrust: %s\n", reverse_thrust_active ? "ON" : "OFF");
+    bool corner_match =
+        rc_input->roll >= CONFIG_REVERSE_STICK_THRESHOLD &&
+        rc_input->pitch <= -CONFIG_REVERSE_STICK_THRESHOLD;
+    bool height_match = state->navigation.height_valid &&
+        fabsf(state->navigation.altitude) <=
+        CONFIG_REVERSE_ALTITUDE_TOLERANCE_M;
+    printf("Reverse inputs: roll=%+.3f pitch=%+.3f | signals=%s | corner=%s\n",
+           rc_input->roll, rc_input->pitch,
+           reverse_rc_signal_valid ? "VALID" : "INVALID",
+           corner_match ? "MATCH" : "NO");
+    printf("Reverse gates: armed=%s baro_ref=%s fused_height=%s (%.2f m)\n",
+           system_armed ? "YES" : "NO",
+           baro_reference_valid ? "READY" : "WAIT",
+           height_match ? "MATCH" : "NO",
+           state->navigation.altitude);
     printf("\n");
     
     // Electrical data uses configured battery voltage and measured current.

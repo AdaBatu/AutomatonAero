@@ -12,6 +12,10 @@
 #define GPS_STATIONARY_VARIANCE 0.04f
 #define GPS_STATIONARY_SPEED    0.75f
 #define MAX_HORIZONTAL_ACCEL    30.0f
+#define MAX_VERTICAL_ACCEL      20.0f
+#define GRAVITY_MPS2            9.80665f
+#define BARO_ALTITUDE_VARIANCE  2.25f
+#define GPS_ALTITUDE_VARIANCE   36.0f
 
 static void axis_predict(NavAxisKalman_t *axis, float acceleration, float dt)
 {
@@ -91,12 +95,14 @@ void NavFusion_Init(NavFusion_t *filter)
     filter->north.covariance[1][1] = 25.0f;
     filter->north.covariance[2][2] = 4.0f;
     filter->east = filter->north;
+    filter->up = filter->north;
 }
 
 void NavFusion_Predict(NavFusion_t *filter, const Vector3f_t *a,
                        const Orientation_t *o, float dt)
 {
-    if (!filter->initialized || dt <= 0.0f || dt > 0.1f) return;
+    if ((!filter->initialized && !filter->height_initialized) ||
+        dt <= 0.0f || dt > 0.1f) return;
     float cr = cosf(o->roll), sr = sinf(o->roll);
     float cp = cosf(o->pitch), sp = sinf(o->pitch);
     float cy = cosf(o->yaw), sy = sinf(o->yaw);
@@ -104,13 +110,21 @@ void NavFusion_Predict(NavFusion_t *filter, const Vector3f_t *a,
                         (cy * sp * cr + sy * sr) * a->z;
     float east_accel = sy * cp * a->x + (sy * sp * sr + cy * cr) * a->y +
                        (sy * sp * cr - cy * sr) * a->z;
-    if (!isfinite(north_accel) || !isfinite(east_accel)) return;
-    if (north_accel > MAX_HORIZONTAL_ACCEL) north_accel = MAX_HORIZONTAL_ACCEL;
-    if (north_accel < -MAX_HORIZONTAL_ACCEL) north_accel = -MAX_HORIZONTAL_ACCEL;
-    if (east_accel > MAX_HORIZONTAL_ACCEL) east_accel = MAX_HORIZONTAL_ACCEL;
-    if (east_accel < -MAX_HORIZONTAL_ACCEL) east_accel = -MAX_HORIZONTAL_ACCEL;
-    axis_predict(&filter->north, north_accel, dt);
-    axis_predict(&filter->east, east_accel, dt);
+    float up_accel = -sp * a->x + cp * sr * a->y + cp * cr * a->z -
+                     GRAVITY_MPS2;
+    if (filter->initialized && isfinite(north_accel) && isfinite(east_accel)) {
+        if (north_accel > MAX_HORIZONTAL_ACCEL) north_accel = MAX_HORIZONTAL_ACCEL;
+        if (north_accel < -MAX_HORIZONTAL_ACCEL) north_accel = -MAX_HORIZONTAL_ACCEL;
+        if (east_accel > MAX_HORIZONTAL_ACCEL) east_accel = MAX_HORIZONTAL_ACCEL;
+        if (east_accel < -MAX_HORIZONTAL_ACCEL) east_accel = -MAX_HORIZONTAL_ACCEL;
+        axis_predict(&filter->north, north_accel, dt);
+        axis_predict(&filter->east, east_accel, dt);
+    }
+    if (filter->height_initialized && isfinite(up_accel)) {
+        if (up_accel > MAX_VERTICAL_ACCEL) up_accel = MAX_VERTICAL_ACCEL;
+        if (up_accel < -MAX_VERTICAL_ACCEL) up_accel = -MAX_VERTICAL_ACCEL;
+        axis_predict(&filter->up, up_accel, dt);
+    }
 }
 
 void NavFusion_CorrectGPS(NavFusion_t *filter, const GPS_Data_t *gps,
@@ -138,22 +152,52 @@ void NavFusion_CorrectGPS(NavFusion_t *filter, const GPS_Data_t *gps,
     axis_correct(&filter->east, (float)east, 0U, GPS_POSITION_VARIANCE);
     axis_correct(&filter->north, vn, 1U, velocity_variance);
     axis_correct(&filter->east, ve, 1U, velocity_variance);
+    if (filter->height_initialized) {
+        if (!filter->altitude_origin_initialized) {
+            filter->origin_altitude = gps->altitude - filter->up.position;
+            filter->altitude_origin_initialized = true;
+        }
+        axis_correct(&filter->up, gps->altitude - filter->origin_altitude,
+                     0U, GPS_ALTITUDE_VARIANCE);
+    }
     filter->last_gps_fix_tick = fix_tick;
+}
+
+void NavFusion_CorrectBarometer(NavFusion_t *filter, const Baro_Data_t *baro,
+                                uint32_t sample_tick)
+{
+    if (!baro->valid || sample_tick == 0U ||
+        sample_tick == filter->last_baro_tick || !isfinite(baro->altitude))
+        return;
+    if (!filter->height_initialized) {
+        filter->up.position = baro->altitude;
+        filter->height_initialized = true;
+    } else {
+        axis_correct(&filter->up, baro->altitude, 0U,
+                     BARO_ALTITUDE_VARIANCE);
+    }
+    filter->last_baro_tick = sample_tick;
 }
 
 void NavFusion_GetData(const NavFusion_t *filter, Nav_Data_t *data)
 {
     memset(data, 0, sizeof(*data));
-    if (!filter->initialized) return;
-    data->latitude = filter->origin_latitude +
-                     (double)filter->north.position / EARTH_RADIUS_M * RAD_TO_DEG_D;
-    double latitude_rad = data->latitude * DEG_TO_RAD_D;
-    double longitude_scale = EARTH_RADIUS_M * cos(latitude_rad);
-    data->longitude = filter->origin_longitude +
-                      (double)filter->east.position / longitude_scale * RAD_TO_DEG_D;
-    data->velocity_north = filter->north.velocity;
-    data->velocity_east = filter->east.velocity;
-    data->speed = sqrtf(data->velocity_north * data->velocity_north +
-                        data->velocity_east * data->velocity_east);
-    data->valid = true;
+    if (filter->initialized) {
+        data->latitude = filter->origin_latitude +
+                         (double)filter->north.position / EARTH_RADIUS_M * RAD_TO_DEG_D;
+        double latitude_rad = data->latitude * DEG_TO_RAD_D;
+        double longitude_scale = EARTH_RADIUS_M * cos(latitude_rad);
+        data->longitude = filter->origin_longitude +
+                          (double)filter->east.position / longitude_scale * RAD_TO_DEG_D;
+        data->velocity_north = filter->north.velocity;
+        data->velocity_east = filter->east.velocity;
+        data->speed = sqrtf(data->velocity_north * data->velocity_north +
+                            data->velocity_east * data->velocity_east);
+        data->valid = true;
+    }
+    if (filter->height_initialized) {
+        data->altitude = filter->up.position;
+        data->velocity_up = filter->up.velocity;
+        data->height_valid = true;
+    }
 }

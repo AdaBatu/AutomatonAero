@@ -60,10 +60,13 @@ typedef struct {
 typedef struct {
     double latitude;
     double longitude;
+    float altitude;        // meters above startup reference (fused)
     float velocity_north;
     float velocity_east;
+    float velocity_up;
     float speed;
     bool valid;
+    bool height_valid;
 } Nav_Data_t;
 
 /* ============================================================================
@@ -141,11 +144,18 @@ typedef struct {
     int16_t velocity_east;    // m/s * 100
     uint16_t fused_speed;     // m/s * 100
     uint8_t navigation_valid;
+    int16_t fused_altitude;   // meters above startup reference * 100
+    int16_t velocity_up;      // m/s * 100
+    uint8_t height_valid;
+    uint8_t reverse_thrust_active;
     uint16_t current_sensor_mv; // Raw OUT2/PC0 voltage
     
     uint8_t checksum;
 } Telemetry_Packet_t;
 #pragma pack(pop)
+
+_Static_assert(sizeof(Telemetry_Packet_t) == 71,
+               "Telemetry packet layout changed; update the receiver decoder");
 
 /* ============================================================================
  * SYSTEM STATE

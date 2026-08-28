@@ -73,7 +73,8 @@ uint8_t Telemetry_CalculateChecksum(const Telemetry_Packet_t *packet)
 /* Build telemetry packet from flight state */
 void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *state,
                            uint8_t servo_roll, uint8_t servo_pitch, 
-                           uint8_t servo_yaw, uint8_t esc_throttle)
+                           uint8_t servo_yaw, uint8_t esc_throttle,
+                           bool reverse_thrust_active)
 {
     Telemetry_Packet_t *pkt = &htelem->packet;
     
@@ -144,6 +145,22 @@ void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *stat
         pkt->fused_speed = 0;
         pkt->navigation_valid = 0U;
     }
+    if (state->navigation.height_valid) {
+        float altitude = state->navigation.altitude * 100.0f;
+        float velocity_up = state->navigation.velocity_up * 100.0f;
+        if (altitude > 32767.0f) altitude = 32767.0f;
+        else if (altitude < -32768.0f) altitude = -32768.0f;
+        if (velocity_up > 32767.0f) velocity_up = 32767.0f;
+        else if (velocity_up < -32768.0f) velocity_up = -32768.0f;
+        pkt->fused_altitude = (int16_t)altitude;
+        pkt->velocity_up = (int16_t)velocity_up;
+        pkt->height_valid = 1U;
+    } else {
+        pkt->fused_altitude = 0;
+        pkt->velocity_up = 0;
+        pkt->height_valid = 0U;
+    }
+    pkt->reverse_thrust_active = reverse_thrust_active ? 1U : 0U;
     
     // Barometer altitude
     if (state->baro.valid) {

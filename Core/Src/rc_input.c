@@ -222,6 +222,15 @@ bool RC_IsValid(RC_Handle_t *hrc)
     return hrc->data.valid;
 }
 
+bool RC_IsChannelValid(const RC_Handle_t *hrc, uint8_t channel)
+{
+    if (hrc == NULL || channel >= RC_NUM_CHANNELS)
+        return false;
+    uint32_t now = HAL_GetTick();
+    return hrc->pulse_count[channel] != 0U &&
+           now - hrc->last_pulse_time[channel] <= RC_SIGNAL_TIMEOUT;
+}
+
 bool RC_GetChannelDiagnostics(const RC_Handle_t *hrc, uint8_t channel,
                               RC_ChannelDiagnostics_t *diagnostics)
 {

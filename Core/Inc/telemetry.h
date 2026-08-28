@@ -47,7 +47,8 @@ void Telemetry_SetRate(Telemetry_Handle_t *htelem, uint8_t rate_hz);
 /* Build packet from flight state */
 void Telemetry_BuildPacket(Telemetry_Handle_t *htelem, const FlightState_t *state,
                            uint8_t servo_roll, uint8_t servo_pitch, 
-                           uint8_t servo_yaw, uint8_t esc_throttle);
+                           uint8_t servo_yaw, uint8_t esc_throttle,
+                           bool reverse_thrust_active);
 
 /* Send telemetry (non-blocking) */
 HAL_StatusTypeDef Telemetry_Send(Telemetry_Handle_t *htelem);

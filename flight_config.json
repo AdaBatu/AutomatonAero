@@ -38,10 +38,10 @@
     "output_pin": "PA11",
     "inactive_pulse_us": 1000,
     "active_pulse_us": 2000,
-    "stick_corner_threshold": 0.95,
+    "stick_corner_threshold": 0.80,
     "startup_altitude_tolerance_m": 2.0,
     "maximum_barometer_age_ms": 250,
-    "activation": "pitch fully down and roll fully left while close to startup altitude"
+    "activation": "pitch <= -0.80 and transmitter aileron-left (roll >= +0.80) while fused height is close to startup altitude"
   },
   "rc_input": {
     "minimum_pulse_us": 1000,

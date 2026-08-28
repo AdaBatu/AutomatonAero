@@ -142,6 +142,8 @@ static osMutexId_t i2c2MutexHandle;
 static volatile float mcu_temperature_c = 0.0f;
 static volatile bool mcu_temperature_valid = false;
 static volatile bool baro_startup_zero_valid = false;
+static volatile bool reverse_thrust_active = false;
+static volatile bool reverse_rc_signal_valid = false;
 
 /* USER CODE END PV */
 
@@ -1085,6 +1087,10 @@ static void Flight_ControlLoop(void)
     }
 
     NavFusion_CorrectGPS(&nav_fusion, &flight_state.gps, hgps.last_valid_fix);
+    if (baro_startup_zero_valid) {
+        NavFusion_CorrectBarometer(&nav_fusion, &flight_state.baro,
+                                   flight_state.last_baro_update);
+    }
     NavFusion_GetData(&nav_fusion, &flight_state.navigation);
     
     /* ========== UPDATE PID SETPOINTS FROM RC ========== */
@@ -1109,19 +1115,25 @@ static void Flight_ControlLoop(void)
     float front_wheel_angle = CONFIG_FRONT_WHEEL_NOMINAL_DEGREES -
                   rc_input.yaw * CONFIG_FRONT_WHEEL_TRAVEL_DEGREES;
 
-    /* PA11 emulates an RC channel at 100% only for the deliberate lower-left
-       stick gesture on the ground. The completed startup barometer reference,
+    /* PA11 emulates an RC channel at 100% only for the deliberate configured
+       aileron-left/pitch-down gesture. The completed startup barometer reference,
        a fresh altitude sample, and a valid receiver are all required so a
        missing sensor/signal always returns the output to its inactive pulse. */
-    bool reverse_thrust_active =
+    /* Only the two gesture channels are required. A missing throttle or yaw
+       channel must not silently become part of the reverse-thrust gesture. */
+    reverse_rc_signal_valid =
+        RC_IsChannelValid(&hrc, RC_CH_ROLL) &&
+        RC_IsChannelValid(&hrc, RC_CH_PITCH);
+    reverse_thrust_active =
         system_armed &&
-        rc_input.valid &&
+        reverse_rc_signal_valid &&
         baro_startup_zero_valid &&
+        flight_state.navigation.height_valid &&
         (now - flight_state.last_baro_update <=
          CONFIG_REVERSE_MAX_BARO_AGE_MS) &&
         (rc_input.pitch <= -CONFIG_REVERSE_STICK_THRESHOLD) &&
-        (rc_input.roll <= -CONFIG_REVERSE_STICK_THRESHOLD) &&
-        (fabsf(flight_state.baro.altitude) <=
+        (rc_input.roll >= CONFIG_REVERSE_STICK_THRESHOLD) &&
+        (fabsf(flight_state.navigation.altitude) <=
          CONFIG_REVERSE_ALTITUDE_TOLERANCE_M);
 
     Servo_SetPulse(&reverse_thrust_output,
@@ -1256,7 +1268,8 @@ void StarttelemetryTask(void *argument)
       uint8_t telem_yaw = (uint8_t)((yaw_out + 1.0f) * 127.5f);
       uint8_t telem_throttle = (uint8_t)(throttle_command * 255.0f);
       Telemetry_BuildPacket(&htelemetry, &flight_state,
-                            telem_roll, telem_pitch, telem_yaw, telem_throttle);
+                            telem_roll, telem_pitch, telem_yaw, telem_throttle,
+                            reverse_thrust_active);
       Telemetry_Send(&htelemetry);
     }
     /* Debug UART is intentionally kept out of the time-critical flight task. */
@@ -1265,8 +1278,13 @@ void StarttelemetryTask(void *argument)
       float roll_out, pitch_out, yaw_out;
       FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_out);
       SerialTelemetry_Print(&hserial_telem, &flight_state,
+                            &hrc.data,
                             roll_out, pitch_out, hrc.data.yaw, 0.0f,
-                            mcu_temperature_c, mcu_temperature_valid);
+                            mcu_temperature_c, mcu_temperature_valid,
+                            reverse_rc_signal_valid,
+                            baro_startup_zero_valid,
+                            system_armed != 0U,
+                            reverse_thrust_active);
     }
     #endif
     telemetry_heartbeat = HAL_GetTick();

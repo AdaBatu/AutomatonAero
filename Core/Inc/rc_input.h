@@ -81,6 +81,7 @@ void RC_GetInput(RC_Handle_t *hrc, RC_Input_t *input);
 
 /* Check if RC signal is valid */
 bool RC_IsValid(RC_Handle_t *hrc);
+bool RC_IsChannelValid(const RC_Handle_t *hrc, uint8_t channel);
 
 /* Get capture details for one channel without printing from the ISR. */
 bool RC_GetChannelDiagnostics(const RC_Handle_t *hrc, uint8_t channel,

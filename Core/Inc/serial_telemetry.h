@@ -14,6 +14,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "flight_types.h"
+#include "rc_input.h"
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -45,11 +46,17 @@ void SerialTelemetry_Init(SerialTelemetry_Handle_t *handle, uint8_t rate_hz);
  * @param servo_pitch Servo pitch output (-1.0 to +1.0)
  * @param servo_yaw Servo yaw output (-1.0 to +1.0)
  * @param throttle Throttle command (0.0 to 1.0)
+ * @param reverse_thrust_active Current PA11 reverse-thrust command state
  */
 void SerialTelemetry_Print(SerialTelemetry_Handle_t *handle, const FlightState_t *state,
+                          const RC_Input_t *rc_input,
                           float servo_roll, float servo_pitch, float servo_yaw,
                           float throttle, float mcu_temperature_c,
-                          bool mcu_temperature_valid);
+                          bool mcu_temperature_valid,
+                          bool reverse_rc_signal_valid,
+                          bool baro_reference_valid,
+                          bool system_armed,
+                          bool reverse_thrust_active);
 
 /**
  * @brief Check if ready to print (based on interval)
