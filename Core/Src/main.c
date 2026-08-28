@@ -38,6 +38,7 @@
 #include "flight_config_generated.h"
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -115,6 +116,7 @@ static bool attitude_zero_valid = false;
 Servo_Handle_t servo_roll;   // TIM1_CH1 - PA8
 Servo_Handle_t servo_pitch;  // TIM1_CH2 - PA9
 Servo_Handle_t servo_yaw;    // TIM1_CH3 - PA10 front wheel steering
+Servo_Handle_t reverse_thrust_output; // TIM1_CH4 - PA11 RC-style command
 ESC_Handle_t esc;            // Legacy throttle output unused on this airframe
 
 /* Telemetry */
@@ -139,6 +141,7 @@ static volatile uint32_t telemetry_heartbeat = 0;
 static osMutexId_t i2c2MutexHandle;
 static volatile float mcu_temperature_c = 0.0f;
 static volatile bool mcu_temperature_valid = false;
+static volatile bool baro_startup_zero_valid = false;
 
 /* USER CODE END PV */
 
@@ -578,6 +581,10 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
@@ -751,7 +758,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB1 PB2 PB3 (RC PWM inputs) */
+  /*Configure GPIO pins : PB1 PB2 PB3 */
   GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -899,6 +906,7 @@ static void Flight_InitActuators(void)
     Servo_Init(&servo_roll, &htim1, TIM_CHANNEL_1);   // PA8
     Servo_Init(&servo_pitch, &htim1, TIM_CHANNEL_2);  // PA9
     Servo_Init(&servo_yaw, &htim1, TIM_CHANNEL_3);    // PA10 front wheel
+    Servo_Init(&reverse_thrust_output, &htim1, TIM_CHANNEL_4); // PA11
     Servo_SetTravelDegrees(&servo_roll, CONFIG_ROLL_SERVO_TRAVEL_DEGREES);
     Servo_SetTravelDegrees(&servo_pitch, CONFIG_PITCH_SERVO_TRAVEL_DEGREES);
     Servo_SetTravelDegrees(&servo_yaw, CONFIG_FRONT_WHEEL_TRAVEL_DEGREES);
@@ -907,6 +915,10 @@ static void Flight_InitActuators(void)
     Servo_SetAngle(&servo_roll, 0.0f);
     Servo_SetAngle(&servo_pitch, 0.0f);
     Servo_SetAngle(&servo_yaw, CONFIG_FRONT_WHEEL_NOMINAL_DEGREES);
+    /* Reverse thrust is fail-safe inactive until every activation condition
+       has been observed by the control loop. */
+    Servo_SetPulse(&reverse_thrust_output,
+                   CONFIG_REVERSE_INACTIVE_PULSE_US);
 }
 
 /**
@@ -1096,6 +1108,26 @@ static void Flight_ControlLoop(void)
     FlightPID_GetOutputs(&flight_pid, &roll_out, &pitch_out, &yaw_pid_out);
     float front_wheel_angle = CONFIG_FRONT_WHEEL_NOMINAL_DEGREES -
                   rc_input.yaw * CONFIG_FRONT_WHEEL_TRAVEL_DEGREES;
+
+    /* PA11 emulates an RC channel at 100% only for the deliberate lower-left
+       stick gesture on the ground. The completed startup barometer reference,
+       a fresh altitude sample, and a valid receiver are all required so a
+       missing sensor/signal always returns the output to its inactive pulse. */
+    bool reverse_thrust_active =
+        system_armed &&
+        rc_input.valid &&
+        baro_startup_zero_valid &&
+        (now - flight_state.last_baro_update <=
+         CONFIG_REVERSE_MAX_BARO_AGE_MS) &&
+        (rc_input.pitch <= -CONFIG_REVERSE_STICK_THRESHOLD) &&
+        (rc_input.roll <= -CONFIG_REVERSE_STICK_THRESHOLD) &&
+        (fabsf(flight_state.baro.altitude) <=
+         CONFIG_REVERSE_ALTITUDE_TOLERANCE_M);
+
+    Servo_SetPulse(&reverse_thrust_output,
+                   reverse_thrust_active
+                       ? CONFIG_REVERSE_ACTIVE_PULSE_US
+                       : CONFIG_REVERSE_INACTIVE_PULSE_US);
     
     /* This airframe has no flight-computer throttle output. */
     throttle_command = 0.0f;
@@ -1269,7 +1301,7 @@ void StartsensorsTask(void *argument)
   float baro_startup_altitude_sum = 0.0f;
   float baro_startup_altitude = 0.0f;
   uint8_t baro_startup_samples = 0U;
-  bool baro_startup_zero_valid = false;
+  baro_startup_zero_valid = false;
   uint32_t last_gps_rearm = HAL_GetTick();
   uint32_t last_power_read = 0;
   uint32_t last_mcu_temperature_read = 0;

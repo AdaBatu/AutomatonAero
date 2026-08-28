@@ -34,6 +34,15 @@
     "pitch_output_pin": "PA9",
     "front_wheel_output_pin": "PA10"
   },
+  "reverse_thrust": {
+    "output_pin": "PA11",
+    "inactive_pulse_us": 1000,
+    "active_pulse_us": 2000,
+    "stick_corner_threshold": 0.95,
+    "startup_altitude_tolerance_m": 2.0,
+    "maximum_barometer_age_ms": 250,
+    "activation": "pitch fully down and roll fully left while close to startup altitude"
+  },
   "rc_input": {
     "minimum_pulse_us": 1000,
     "center_pulse_us": 1500,

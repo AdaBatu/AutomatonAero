@@ -54,6 +54,16 @@ string(JSON FLIGHT_FRONT_WHEEL_NOMINAL_DEGREES GET
     "${FLIGHT_CONFIG_JSON}" servos front_wheel_nominal_degrees)
 string(JSON FLIGHT_BARO_ZERO_SAMPLES GET
     "${FLIGHT_CONFIG_JSON}" barometer_ms5611 startup_altitude_zero_samples)
+string(JSON FLIGHT_REVERSE_INACTIVE_PULSE_US GET
+    "${FLIGHT_CONFIG_JSON}" reverse_thrust inactive_pulse_us)
+string(JSON FLIGHT_REVERSE_ACTIVE_PULSE_US GET
+    "${FLIGHT_CONFIG_JSON}" reverse_thrust active_pulse_us)
+string(JSON FLIGHT_REVERSE_STICK_THRESHOLD GET
+    "${FLIGHT_CONFIG_JSON}" reverse_thrust stick_corner_threshold)
+string(JSON FLIGHT_REVERSE_ALTITUDE_TOLERANCE_M GET
+    "${FLIGHT_CONFIG_JSON}" reverse_thrust startup_altitude_tolerance_m)
+string(JSON FLIGHT_REVERSE_MAX_BARO_AGE_MS GET
+    "${FLIGHT_CONFIG_JSON}" reverse_thrust maximum_barometer_age_ms)
 string(JSON FLIGHT_CONFIG_RX_INTERVAL_MS GET
     "${FLIGHT_CONFIG_JSON}" lora configuration_receive_window_interval_ms)
 string(JSON FLIGHT_CONFIG_RX_DURATION_MS GET
